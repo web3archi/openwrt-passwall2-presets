@@ -1,34 +1,49 @@
 # openwrt-passwall2-presets
 
-Пресет-аддон для PassWall2 на OpenWrt (Asus RT-AX53U / mt7621) — тонкий слой
-UCI-пресетов и лёгкого наблюдателя над **нативными** механизмами PW2
-(Balancing/URLTest, Shunt-правила), а не отдельный параллельный
-демон-переключатель/killswitch, как в предыдущей итерации проекта.
+*[Русская версия](README.ru.md)*
 
-## Статус
+A preset addon for PassWall2 on OpenWrt (Asus RT-AX53U / mt7621) — a thin
+layer of UCI presets and a lightweight observer on top of PW2's **native**
+mechanisms (Balancing/URLTest, Shunt rules), rather than a separate
+parallel switching daemon/killswitch, as in the project's previous
+iteration.
 
-Проект в стадии архитектуры/спеки. Кодирование начинается только после
-полной картины аддона (см. `docs/SPEC_v0.6.0.md`).
+## Status
 
-- **Текущий документ:** [`docs/SPEC_v0.6.0.md`](docs/SPEC_v0.6.0.md) —
-  архитектура (Presets Engine / Observer / LuCI-страницы), каталог
-  пресетов (Wave 1: лучшая нода + Shunt-обход, Wave 2: фиксированный IP,
-  Wave 3: HAProxy/SOCKS Auto Switch — опционально для более мощного
-  железа).
-- **Диагностический архив:** [`docs/LEGACY_BACKLOG.md`](docs/LEGACY_BACKLOG.md) —
-  полный бэклог предыдущего проекта
+The project is currently in the architecture/spec stage. Coding starts
+only once the addon's full picture is settled (see
+`docs/SPEC_v0.6.0.md`).
+
+- **Current spec:** [`docs/SPEC_v0.6.0.md`](docs/SPEC_v0.6.0.md) —
+  architecture (Presets Engine / Observer / LuCI pages), preset catalog
+  (Wave 1: best-node preset + Shunt-based bypass, Wave 2: fixed IP,
+  Wave 3: HAProxy/SOCKS Auto Switch — optional, for more powerful
+  hardware).
+- **Diagnostic archive:** [`docs/LEGACY_BACKLOG.md`](docs/LEGACY_BACKLOG.md) —
+  the full backlog from the previous project
   ([openwrt-passwall2-watchdog](https://github.com/web3archi/openwrt-passwall2-watchdog),
-  архивирован) — содержит проверенные диагностические факты о поведении
-  PW2/Xray на этом железе (fail-closed конструкция nftables, OOM-инциденты,
-  поведение `monitor.sh`), которые остаются актуальными независимо от
-  смены архитектуры аддона.
+  now archived) — contains verified diagnostic facts about PW2/Xray
+  behavior on this hardware (fail-closed-by-construction nftables, OOM
+  incidents, `monitor.sh` behavior) that remain relevant regardless of
+  the addon's architecture change.
+- **Project backlog:** [`docs/BACKLOG.md`](docs/BACKLOG.md) — decisions
+  and findings specific to this repository, starting fresh from this
+  project's own P1.
 
-## Почему новый репозиторий, а не продолжение старого
+## Why a new repository instead of continuing the old one
 
-Предыдущий проект (`openwrt-passwall2-watchdog`) реализовывал отдельный
-параллельный демон выбора ноды + killswitch. По итогам эксплуатации
-(дубли процессов, хрупкое восстановление после OOM, отсутствие
-`respawn`-интеграции с procd) было решено не развивать эту архитектуру, а
-перейти на тонкие пресеты над штатными механизмами PW2. Старый репозиторий
-заархивирован и переведён в приватный режим, история сохранена как
-справочный материал.
+The previous project (`openwrt-passwall2-watchdog`) implemented a
+separate parallel node-selection daemon plus a killswitch. Based on
+operational experience (duplicate processes, fragile OOM recovery, no
+`respawn` integration with procd), the decision was made not to continue
+that architecture and instead move to thin presets on top of PW2's own
+mechanisms. The old repository has been archived and set to private;
+its history is kept as reference material.
+
+## Language policy
+
+All code, comments, commit messages, and documentation in this
+repository are written in English. The README is the exception: it is
+maintained in English (this file) with a Russian translation kept in
+sync at [`README.ru.md`](README.ru.md). See `docs/BACKLOG.md` for the
+rationale.

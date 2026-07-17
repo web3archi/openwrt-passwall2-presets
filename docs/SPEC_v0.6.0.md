@@ -1,212 +1,237 @@
-# ТЗ v0.6.0 — «PW2 Presets Addon»
+# SPEC v0.6.0 — "PW2 Presets Addon"
 
-Статус: draft для обсуждения. Кодирование не начато — сначала фиксируем архитектуру.
-Дата: 2026-07-17.
+Status: draft for discussion. Coding has not started — architecture is fixed first.
+Date: 2026-07-17.
 
-## 0. Итог исследования (основание для ТЗ)
+## 0. Research summary (basis for this spec)
 
-Ключевой пивот: старый watchdog-переключатель (chooser daemon) избыточен. PassWall2 (далее PW2)
-уже нативно умеет то, что мы пытались реализовать поверх него: авто-выбор лучшей ноды
-(Xray Balancing / sing-box URLTest), health-check, fallback. Наш код должен стать тонкой
-надстройкой — генератором пресетов конфигурации + лёгким наблюдателем, а не параллельным
-движком управления трафиком.
+Key pivot: the old watchdog/chooser daemon is redundant. PassWall2 (hereafter PW2)
+already natively does what we were trying to build on top of it: automatic
+best-node selection (Xray Balancing / sing-box URLTest), health-checking, fallback.
+Our code should become a thin layer — a config-preset generator plus a lightweight
+observer — rather than a parallel traffic-control engine.
 
-### 0.1 Killswitch: что подтверждено кодом PW2 (не гипотеза, а факт из исходников)
+### 0.1 Killswitch: what PW2's own code confirms (not a hypothesis — a fact from the source)
 
-Прочитаны `app.sh`, `nftables.sh`, `monitor.sh` из
+Read `app.sh`, `nftables.sh`, `monitor.sh` from
 [Openwrt-Passwall/openwrt-passwall2](https://github.com/Openwrt-Passwall/openwrt-passwall2)
-и issue [#796 "Kill Switch"](https://github.com/xiaorouji/openwrt-passwall2/issues/796).
+and issue [#796 "Kill Switch"](https://github.com/xiaorouji/openwrt-passwall2/issues/796).
 
-- Функция `del_firewall_rule()` (полностью снимает все `PSW2_*` nft-правила/цепочки/сеты) —
-  вызывается **только** из `stop()`. Никакого вызова из live health-check или при падении
-  Xray в файле нет.
-- Значит: **если Xray/sing-box падает или виснет, пока сам сервис PW2 не останавливался** —
-  nft-правила TPROXY/REDIRECT остаются на месте, LAN-трафик продолжает редиректиться на
-  (мёртвый) локальный порт и просто рвётся/зависает. Это ровно то, что мы видели в
-  WAN Monitor логе: полный обрыв интернета, но никогда — посторонний IP.
-- DNS устроен тем же образом: `PSW2_DNS`-цепочка безусловно редиректит UDP/TCP:53 от LAN на
-  `dns_redirect_port` (`nft ... redirect to :$dns_redirect_port`). Никакого explicit
-  ACCEPT/direct-fallback правила на случай недоступности порта в коде нет. Значит DNS **тоже
-  fail-closed по построению** — при падении процесса DNS-запросы редиректятся в никуда, а не
-  утекают на реальный upstream DNS.
-- **Реальная дырка — не падение Xray, а цикл `stop()` → `start()`** (ручной restart,
-  "Save & Apply" многих настроек в LuCI, перезагрузка роутера до инициализации PW2).
-  `del_firewall_rule()` полностью снимает защиту, и до завершения `start()` у LAN есть
-  прямой путь наружу. Именно эту дырку просил закрыть автор issue #796 ("сохранять
-  nftables-правила при смене конфигурации, чтобы интернета не было, если xray не подключен") —
-  **фича закрыта апстримом как `not planned` (22.04.2025)**, то есть в самом PW2 её не будет.
-- `monitor.sh` — собственный watchdog процессов PW2: раз в ~58 сек (+до 6 сек lock-задержка)
-  проверяет через `pgrep -f`, жив ли зарегистрированный процесс, и перезапускает через
-  `nohup` (без `procd respawn`). Работает только если
-  `passwall2.@global[0].enabled=1` **и** `passwall2.@global_delay[0].start_daemon=1`.
-  `pgrep` детектит только "процесса нет", не "процесс жив, но подвис (deadlock)".
+- The `del_firewall_rule()` function (fully tears down all `PSW2_*` nft rules/chains/sets)
+  is called **only** from `stop()`. There is no call to it from a live health-check or on
+  Xray crash anywhere in the file.
+- Meaning: **if Xray/sing-box crashes or hangs while the PW2 service itself was never
+  stopped**, the TPROXY/REDIRECT nft rules stay in place, LAN traffic keeps getting
+  redirected to a (dead) local port, and simply breaks/hangs. This is exactly what was
+  observed in the WAN Monitor log: a total internet outage, but never a leaked outside IP.
+- DNS works the same way: the `PSW2_DNS` chain unconditionally redirects UDP/TCP:53 from
+  LAN to `dns_redirect_port` (`nft ... redirect to :$dns_redirect_port`). There is no
+  explicit ACCEPT/direct-fallback rule anywhere in the code for the case where that port
+  is unreachable. So DNS is **also fail-closed by construction** — when the process dies,
+  DNS queries get redirected into a void rather than leaking out to a real upstream DNS.
+- **The real leak window is not an Xray crash — it's the `stop()` → `start()` cycle**
+  (manual restart, "Save & Apply" on many LuCI settings, router reboot before PW2 has
+  initialized). `del_firewall_rule()` fully tears down protection, and until `start()`
+  finishes, the LAN has a direct path out. This is exactly the gap issue #796's author
+  asked to close ("keep the nftables rules in place across config changes so there's no
+  internet if xray isn't connected") — **the feature was closed upstream as `not planned`
+  (2025-04-22)**, i.e. it will not be added to PW2 itself.
+- `monitor.sh` — PW2's own process watchdog: roughly every ~58s (+ up to 6s lock delay) it
+  checks via `pgrep -f` whether a registered process is alive, and restarts it via
+  `nohup` (no `procd respawn`). Only active if
+  `passwall2.@global[0].enabled=1` **and** `passwall2.@global_delay[0].start_daemon=1`.
+  `pgrep` only detects "process is gone," not "process is alive but hung (deadlocked)."
 
-**Вывод:** нативный killswitch у PW2 не нужен для сценария "Xray упал во время работы" —
-там и так fail-closed. Нужен (если решим строить) **точечный "guard" только на окно
-stop→start и на boot-до-инициализации** — принципиально более лёгкая задача, чем 24/7
-параллельная nft DROP-таблица (которая, вероятно, и есть причина P18 — просадки throughput).
+**Conclusion:** PW2's native behavior needs no additional killswitch for the "Xray died
+while running" scenario — it's already fail-closed there. What might be worth building
+(if we decide to) is a **narrow "guard" covering only the stop→start window and the
+boot-before-init window** — a fundamentally lighter task than a 24/7 parallel nft DROP
+table (which is likely the actual cause of P18 — the throughput drop bug).
 
-### 0.2 Открытые пункты, требующие диагностики с роутера (сам не могу проверить — нет доступа)
+### 0.2 Open items requiring on-router diagnostics (cannot verify myself — no router access)
 
-Прежде чем куда-то кодить guard/killswitch v2 — нужны факты, а не гадание:
+Before coding any guard/killswitch v2, we need facts, not guesses:
 
-1. Подтвердить/опровергнуть OOM-гипотезу по инциденту 05:57–06:01 17.07:
+1. Confirm/refute the OOM hypothesis for the 2026-07-17 05:57–06:01 incident:
    ```
    logread | grep -iE "oom|xray|killed|segfault" | grep "Jul 17.*0[56]:5"
    dmesg -T | grep -i xray | tail -30
    ps w | grep xray
    uptime -p; cat /proc/uptime
    ```
-2. Проверить, включён ли собственный watchdog PW2 (объясняет, почему автовосстановление
-   не случилось за ожидаемые ~58–64 сек):
+2. Check whether PW2's own watchdog is enabled (explains why auto-recovery didn't
+   happen within the expected ~58–64s):
    ```
    uci get passwall2.@global[0].enabled
    uci get passwall2.@global_delay[0].start_daemon
    ```
-3. Подтвердить бэкенд firewall (ожидаем nftables/fw4 на OpenWrt 23.05, но нужно точно):
+3. Confirm the firewall backend (nftables/fw4 expected on OpenWrt 23.05, but verify):
    ```
    uci get passwall2.@global_forwarding[0].prefer_nft
    ```
-4. (Не блокирует ТЗ, но полезно для решения по guard) Измерить реальную длительность
-   "дырки" на этом железе: во время `/etc/init.d/passwall2 restart` держать отдельный
-   `tcpdump -i <wan_iface>` или прямой (не через SOCKS) `ping`/`curl` цикл и посмотреть,
-   сколько реально пакетов успевает пройти прямым путём и сколько это длится по времени.
+4. (Not blocking for this spec, but useful for the guard decision) Measure the actual
+   duration of the "hole" on this hardware: during `/etc/init.d/passwall2 restart`, run
+   a separate `tcpdump -i <wan_iface>` or a direct (non-SOCKS) `ping`/`curl` loop and see
+   how many packets actually get through directly and for how long.
 
-Пока ответы не получены — раздел 5 (killswitch v2 / guard) остаётся черновым и не в MVP.
+> **Update (2026-07-17, later the same day):** items 1–3 above have since been answered
+> with real router data — see `LEGACY_BACKLOG.md` P19 in this repo for the full
+> diagnostic trail (OOM-kill of xray confirmed and time-correlated to the outage;
+> `enabled=1` and `start_daemon=1` both confirmed, yet recovery still took 8+ hours;
+> `prefer_nft=1` confirmed). Item 4 (exact leak-window duration) remains unmeasured.
+> §5 (killswitch v2 / guard) stays out of MVP scope regardless, per the roadmap below.
 
-## 1. Архитектура
+## 1. Architecture
 
-Аддон — не отдельный демон управления трафиком, а три слоя:
+The addon is not a separate traffic-control daemon — it is three layers:
 
-1. **Presets Engine** — набор пресетов, каждый — это набор `uci set`/`uci commit passwall2`
-   команд + `/etc/init.d/passwall2 reload` (не полный restart, если поддерживается — уточнить
-   у PW2, что именно триггерит `stop()+start()` против частичного reload, чтобы минимизировать
-   окно из п.0.1). Никаких хардкодов id/названий нод — выбор всегда через discovery (список
-   существующих `passwall2.@nodes[*]` по факту, как и раньше в проекте).
-2. **Observer (лёгкий)** — переиспользуем существующий по духу `wan_monitor.sh`-подход:
-   периодический curl (через SOCKS-порт PW2 для "текущий IP/скорость", и отдельно вне прокси
-   для эталона "не утекли ли") + детект `EXIT IP CHANGED` для счётчика переключений. Наблюдает,
-   не управляет трафиком — не трогает iptables/nft, поэтому не может создать вторую версию
-   бага P18.
-3. **LuCI-страницы** (Overview / Nodes / Help) — читают только: (a) состояние из UCI PW2,
-   (b) состояние из своего Observer'а. Ничего не дублирует внутреннюю логику PW2.
+1. **Presets Engine** — a set of presets, each being a set of `uci set`/
+   `uci commit passwall2` commands plus `/etc/init.d/passwall2 reload` (not a full
+   restart, if supported — need to confirm with PW2 exactly what triggers a full
+   `stop()+start()` versus a partial reload, to minimize the window from §0.1). No
+   hardcoded node ids/names — selection always goes through discovery (the actual list
+   of existing `passwall2.@nodes[*]`, as in the previous project).
+2. **Observer (lightweight)** — reuse the existing `wan_monitor.sh`-style approach in
+   spirit: a periodic curl (through PW2's SOCKS port for "current IP/speed," and
+   separately outside the proxy as a "did we leak" reference) plus `EXIT IP CHANGED`
+   detection for a switch counter. It observes, it does not control traffic — it never
+   touches iptables/nft, so it cannot create a second version of the P18 bug.
+3. **LuCI pages** (Overview / Nodes / Help) — read-only: (a) state from PW2's own UCI,
+   (b) state from our own Observer. Duplicates none of PW2's internal logic.
 
-Явно НЕ строим: свой chooser/failover-движок (это делает Balancing/URLTest), свой
-24/7 nft killswitch (см. 0.1).
+Explicitly NOT building: our own chooser/failover engine (Balancing/URLTest already do
+this), our own 24/7 nft killswitch (see §0.1).
 
-## 2. Пресеты — приоритет реализации
+## 2. Presets — implementation priority
 
-### Волна 1 (нужна сразу — P1 и P2 из задачи)
+### Wave 1 (needed immediately — P1 and P2 from the task)
 
-**Пресет A — "Лучшая нода" (нативное переключение)**
-Настраивает Xray `_balancing` (для Xray-нод) или sing-box `_urltest` (для sing-box-нод) —
-выбор движка автоматический по типу нод пользователя, без хардкода.
+**Preset A — "Best node" (native switching)**
+Configures Xray `_balancing` (for Xray-type nodes) or sing-box `_urltest` (for
+sing-box-type nodes) — the engine is chosen automatically based on the user's node
+types, no hardcoding.
 
-Выбор стратегии — экспонируется пользователю как понятный выбор (не поле "leastPing" вслепую):
+Strategy choice — exposed to the user as an understandable choice (not a blind
+"leastPing" field):
 
-| Опция в UI | Что ставится реально |
+| UI option | What actually gets set |
 |---|---|
-| "Самая быстрая" | Xray Balancing `strategy=leastPing`; sing-box `urltest`, `tolerance` низкий (~30-50мс) |
-| "Самая стабильная" (по умолчанию) | Xray Balancing `strategy=leastLoad`, `expected` и `tolerance` из пула хороших нод (как уже настроено вручную сейчас: expected=2, tolerance=10) |
-| "Ручная с автовозвратом" | SOCKS Auto Switch: `Main node` + `List of backup nodes` + `Restore Switch` — для случая, когда пользователь хочет явно закреплённый основной узел, а не "лучший по метрике" |
+| "Fastest" | Xray Balancing `strategy=leastPing`; sing-box `urltest` with a low `tolerance` (~30-50ms) |
+| "Most stable" (default) | Xray Balancing `strategy=leastLoad`, `expected` and `tolerance` drawn from the pool of good nodes (as already configured manually today: expected=2, tolerance=10) |
+| "Manual with auto-restore" | SOCKS Auto Switch: `Main node` + `List of backup nodes` + `Restore Switch` — for when the user wants an explicitly pinned primary node rather than "best by metric" |
 
-Обязательные поля пресета: `fallback_node` **никогда** не Direct (валидатор пресета это
-проверяет и блокирует сохранение с явным объяснением почему — см. 0.1, это единственная
-защита от утечки, которая реально работает).
+Mandatory preset fields: `fallback_node` is **never** Direct (the preset validator
+checks this and blocks saving with an explicit explanation why — see §0.1; this is the
+one leak protection that actually works).
 
-**Видимость (обязательное требование, не опция):**
-- Overview: текущая активная нода (детект через `curl -x socks5h://127.0.0.1:<port> https://api.ipify.org` — уже проверено вживую в этой сессии, работает), её текущая latency/скорость (наш пробник, т.к. подтверждено кодом — Xray Observatory не даёт live-читаемого API, только генерирует конфиг), счётчик переключений за период (детект `EXIT IP CHANGED`, как в wan_monitor), мини-лог типа WAN Monitor (последние N строк статуса).
-- Widget (тот же набор, компактно): нода, скорость, число переключений сегодня, статус (OK/degraded/down).
+**Visibility (a hard requirement, not an option):**
+- Overview: currently active node (detected via
+  `curl -x socks5h://127.0.0.1:<port> https://api.ipify.org` — already live-tested
+  this session, works), its current latency/speed (our own probe, since the code
+  confirms Xray Observatory has no live-readable API — it only generates config),
+  a switch counter for the period (`EXIT IP CHANGED` detection, as in wan_monitor), a
+  mini-log in the style of WAN Monitor (last N status lines).
+- Widget (same data set, compact): node, speed, number of switches today, status
+  (OK/degraded/down).
 
-**Пресет B — "Обход блокировок" (bypass через Shunt)**
-Настраивает Shunt-правила: whitelist-домены/подсети (RU/локальные сервисы) → `Direct
-Connection` явно, всё остальное → нода/группа из Пресета A. Discovery списка доменов —
-из существующих ipset/geosite наборов пользователя, не хардкодим. Это единственное место
-во всей архитектуре, где Direct — осознанный, явный выбор, а не аварийный fallback.
+**Preset B — "Bypass" (Shunt-based)**
+Configures Shunt rules: whitelist domains/subnets (RU/local services) → explicit
+`Direct Connection`, everything else → the node/group from Preset A. Domain-list
+discovery comes from the user's existing ipset/geosite sets, not hardcoded. This is the
+one place in the entire architecture where Direct is a deliberate, explicit choice
+rather than an emergency fallback.
 
-### Волна 2 (следующая)
+### Wave 2 (next)
 
-**Пресет C — "Фиксированный IP"**
-Отдельное Shunt-правило на конкретные домены (банки/стриминг) → одна закреплённая нода,
-не через Balancing/URLTest (чтобы IP не менялся). Обсуждается совмещение с Fallback Node
-из Пресета A: если закреплённая нода умирает — либо (а) явно тот же список "хороших" нод как
-общий Fallback, либо (б) отдельный собственный fallback именно для этой группы доменов —
-предложить пользователю выбор при создании пресета, не решать за него молча.
+**Preset C — "Fixed IP"**
+A separate Shunt rule for specific domains (banking/streaming) → one pinned node, not
+routed through Balancing/URLTest (so the IP doesn't change). Combining this with
+Preset A's Fallback Node is under discussion: if the pinned node dies, either (a) the
+same general pool of "good" nodes as the shared Fallback, or (b) a dedicated fallback
+specific to this domain group — offer the user the choice when creating the preset,
+don't silently decide for them.
 
-### Волна 3 (по мере необходимости, после Волны 1-2)
+### Wave 3 (as needed, after Waves 1-2)
 
-**Расширенный пакет для мощного железа (НЕ MT7621-класс)** — HAProxy Load Balancing и
-SOCKS Auto Switch как отдельные опциональные пресеты, скрытые за явным переключателем
-"Расширенные настройки" с предупреждением в UI:
+**Extended package for more powerful hardware (NOT MT7621-class)** — HAProxy Load
+Balancing and SOCKS Auto Switch as separate optional presets, hidden behind an explicit
+"Advanced Settings" toggle with a UI warning:
 
-> "HAProxy и доп. процессы SOCKS Auto Switch добавляют постоянно работающие процессы и
-> health-check запросы. На слабых SoC (MT7621 и аналоги) это заметно ест CPU/память.
-> Включайте только если ваш роутер мощнее типового домашнего (x86, ARM64 4+ ядра, ≥512МБ
-> свободной памяти) — иначе используйте пресеты A/B."
+> "HAProxy and additional SOCKS Auto Switch processes add always-running processes and
+> health-check requests. On weaker SoCs (MT7621 and similar) this noticeably eats
+> CPU/memory. Only enable this if your router is more powerful than a typical home
+> router (x86, ARM64 with 4+ cores, ≥512MB free memory) — otherwise use presets A/B."
 
-- **Weight-балансировка (HAProxy)** — если разным нодам нужен разный вес трафика, не только
-  "лучшая/резервная".
-- **SOCKS Auto Switch с несколькими независимыми профилями** — если нужен не единственный
-  глобальный туннель, а несколько параллельных SOCKS-выходов с разными policy.
+- **Weighted balancing (HAProxy)** — for when different nodes need different traffic
+  weights, not just "best/backup."
+- **SOCKS Auto Switch with multiple independent profiles** — for when a single global
+  tunnel isn't enough and several parallel SOCKS exits with different policies are
+  needed.
 
-**Killswitch v2 / boot-и-restart guard** — только после диагностики из 0.2. Если окно
-утечки на этом железе оказывается пренебрежимо коротким (десятки мс) — не строим вообще,
-экономим сложность. Если существенное — строится не как 24/7 DROP-таблица, а как
-временный default-deny, который держится ровно от `stop()` до завершения `start()`
-(и на boot — до первого успешного запуска PW2), затем снимается сам.
+**Killswitch v2 / boot-and-restart guard** — only after the diagnostics from §0.2. If
+the leak window on this hardware turns out to be negligibly short (tens of ms) — don't
+build it at all, save the complexity. If it's significant, it should be built not as a
+24/7 DROP table, but as a temporary default-deny that's held exactly from `stop()`
+until `start()` completes (and on boot — until PW2's first successful start), then
+lifts itself.
 
-## 3. UCI-схема аддона (черновик, для обсуждения)
+## 3. Addon UCI schema (draft, for discussion)
 
-Отдельный конфиг, не смешивается с `passwall2`:
+A separate config, not mixed with `passwall2`:
 
 ```
 config global 'main'
-    option preset 'best_node'      # текущий активный пресет (discovery/id, не хардкод значений внутри)
-    option strategy 'stable'       # fast|stable|manual — маппится в таблицу §2
+    option preset 'best_node'      # currently active preset (discovery/id, no hardcoded values inside)
+    option strategy 'stable'       # fast|stable|manual — maps to the table in §2
 
 config observer 'main'
     option enabled '1'
-    option interval '30'           # сек, лёгкий пробник, не 58с как у monitor.sh — отдельный процесс
+    option interval '30'           # seconds; lightweight probe, not 58s like monitor.sh — a separate process
     option probe_url 'https://api.ipify.org'
-    option socks_port ''           # discovery из passwall2.@global[0].node_socks_port, не хардкод
+    option socks_port ''           # discovered from passwall2.@global[0].node_socks_port, not hardcoded
 
 config preset 'bypass'
     option enabled '0'
-    list direct_domain_set ''      # discovery из существующих geosite/ipset, не хардкод
+    list direct_domain_set ''      # discovered from existing geosite/ipset sets, not hardcoded
 
 config preset 'fixed_ip'
     option enabled '0'
     list domains ''
-    option node ''                 # discovery из passwall2.@nodes[*]
-    option fallback_mode 'shared'  # shared|dedicated — см. §2 Волна 2
+    option node ''                 # discovered from passwall2.@nodes[*]
+    option fallback_mode 'shared'  # shared|dedicated — see §2 Wave 2
 ```
 
-## 4. LuCI-страницы (спецификация экранов)
+## 4. LuCI pages (screen spec)
 
-- **Overview** — активный пресет, текущая нода + latency, счётчик переключений (сегодня/за час),
-  статус последних N наблюдений (аналог WAN Monitor, компактно), кнопка "тест сейчас".
-- **Nodes** — список из PW2 (не дублируем БД), с колонкой "в пуле пресета A: да/нет".
-- **Help** — статический текст с объяснением пресетов и предупреждением про Волну 3.
-- **Widget** (виджет главной LuCI-страницы) — свёрнутая версия Overview: нода, скорость, статус.
+- **Overview** — active preset, current node + latency, switch counter
+  (today/last hour), status of the last N observations (a compact WAN Monitor
+  analog), a "test now" button.
+- **Nodes** — list sourced from PW2 (we don't duplicate its database), with a
+  "in preset A's pool: yes/no" column.
+- **Help** — static text explaining the presets and warning about Wave 3.
+- **Widget** (LuCI main-page widget) — a collapsed version of Overview: node, speed,
+  status.
 
-## 5. Порядок реализации (roadmap)
+## 5. Implementation order (roadmap)
 
-1. Закрыть п.0.2 (диагностика с роутера) — не кодируем вслепую.
-2. Прототип Observer (без UI) — переиспользовать/адаптировать существующий wan_monitor-скрипт,
-   добавить detection текущей ноды через discovery SOCKS-порта.
-3. Пресет A (движок автовыбора) — генератор UCI для Xray Balancing / sing-box URLTest +
-   валидатор "fallback ≠ Direct".
-4. LuCI Overview + Widget на данных из Observer.
-5. Пресет B (bypass через Shunt).
-6. Пресет C (фиксированный IP) — Волна 2.
-7. Расширенный пакет (HAProxy/SOCKS Auto Switch) с warning-гейтом — Волна 3, только по запросу.
-8. Killswitch v2 (guard) — только если п.0.2/измерения это оправдают.
+1. Close §0.2 (on-router diagnostics) — don't code blind.
+2. Observer prototype (no UI) — reuse/adapt the existing wan_monitor script, add
+   current-node detection via SOCKS-port discovery.
+3. Preset A (auto-selection engine) — UCI generator for Xray Balancing / sing-box
+   URLTest, plus a "fallback ≠ Direct" validator.
+4. LuCI Overview + Widget, backed by Observer data.
+5. Preset B (Shunt-based bypass).
+6. Preset C (fixed IP) — Wave 2.
+7. Extended package (HAProxy/SOCKS Auto Switch) with a warning gate — Wave 3, on
+   request only.
+8. Killswitch v2 (guard) — only if §0.2/measurements justify it.
 
-## 6. Источники
+## 6. Sources
 
-- [app.sh](https://github.com/Openwrt-Passwall/openwrt-passwall2/blob/main/luci-app-passwall2/root/usr/share/passwall2/app.sh) — старт/стоп, DNS-генерация, отсутствие auto-cleanup при падении Xray.
-- [nftables.sh](https://github.com/Openwrt-Passwall/openwrt-passwall2/blob/main/luci-app-passwall2/root/usr/share/passwall2/nftables.sh) — правила DNS hijack и TPROXY/REDIRECT, `del_firewall_rule()`.
-- [monitor.sh](https://github.com/Openwrt-Passwall/openwrt-passwall2/blob/main/luci-app-passwall2/root/usr/share/passwall2/monitor.sh) — встроенный watchdog процессов PW2.
-- [GitHub issue #796 "Kill Switch"](https://github.com/xiaorouji/openwrt-passwall2/issues/796) — подтверждение отсутствия нативного killswitch и закрытия фичи как not planned.
-- Исследовательский отчёт проекта: `PassWall2-avtoperekliuchenie-proksi-URLTest-health-check-i-balansirovka.md` (Space-файл) — Shunt/Balancing/URLTest/HAProxy/SOCKS Auto Switch механики, GitHub-цитаты на `type/ray.lua`, `type/sing-box.lua`, `util_xray.lua`, `shunt_options.lua`.
-- WAN Monitor лог инцидента 2026-07-17 (`paste.txt`, вложение пользователя) — фактические данные по отсутствию утечек и характеру финального обрыва.
+- [app.sh](https://github.com/Openwrt-Passwall/openwrt-passwall2/blob/main/luci-app-passwall2/root/usr/share/passwall2/app.sh) — start/stop, DNS generation, no auto-cleanup on Xray crash.
+- [nftables.sh](https://github.com/Openwrt-Passwall/openwrt-passwall2/blob/main/luci-app-passwall2/root/usr/share/passwall2/nftables.sh) — DNS hijack and TPROXY/REDIRECT rules, `del_firewall_rule()`.
+- [monitor.sh](https://github.com/Openwrt-Passwall/openwrt-passwall2/blob/main/luci-app-passwall2/root/usr/share/passwall2/monitor.sh) — PW2's built-in process watchdog.
+- [GitHub issue #796 "Kill Switch"](https://github.com/xiaorouji/openwrt-passwall2/issues/796) — confirms the absence of a native killswitch and the feature being closed as not planned.
+- Project research report: `PassWall2-avtoperekliuchenie-proksi-URLTest-health-check-i-balansirovka.md` (Space file) — Shunt/Balancing/URLTest/HAProxy/SOCKS Auto Switch mechanics, GitHub citations to `type/ray.lua`, `type/sing-box.lua`, `util_xray.lua`, `shunt_options.lua`.
+- WAN Monitor log for the 2026-07-17 incident (`paste.txt`, user attachment) — factual data on the absence of leaks and the nature of the final outage.
+- `LEGACY_BACKLOG.md` P19 (this repo) — confirmed OOM root cause and rollback decision, superseding §0.2 items 1-3 above.
