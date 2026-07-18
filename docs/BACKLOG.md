@@ -101,6 +101,37 @@ end-to-end (nftables rule parsing against the RU_WHITELIST geoip/geosite
 set is the slow step, ~60–90s alone) — any future watchdog/respawn
 mechanism must tolerate this before declaring a restart attempt failed.
 
+**ROOT CAUSE CONFIRMED (2026-07-18, second OOM recurrence at ~15:16 MSK,
+only ~3h11m after the restart above):** it is NOT a memory leak in the
+xray process itself — our own `oom_watch.sh` sampling showed xray's RSS
+stayed flat (~33–34MB) the entire time, and the kernel OOM line at death
+(`total-vm:603696kB, anon-rss:33908kB`) is nearly identical to the first
+incident's numbers. The actual culprit is
+`passwall2.cfg013fd6.loglevel='debug'` (global Xray log level) combined
+with the `xtls-rprx-vision` flow on the balancer: debug level logs every
+XTLS pad/unpad/readv operation on every connection, writing to
+`/tmp/etc/passwall2/acl/default/global.log` — which lives on tmpfs (RAM).
+Measured: 579,747 lines / ~61.7MB accumulated in ~3h11m of runtime
+(~50 lines/sec average). This file is never rotated or truncated by
+passwall2, so it grows monotonically until it alone exhausts the
+router's ~40MB free-memory margin and triggers OOM — explaining both the
+variable time-to-OOM (3–9+ hours, depending on traffic/health-check
+volume) and the flat process-level RSS (the growth is in the log file,
+not the process heap). A secondary, unrelated ~17MB of dead weight was
+also found in tmpfs: `/tmp/bak_v2ray/geoip.dat` (17,872,715 bytes), a
+stale full-geoip backup from the Incident 1 fix (2026-07-13), superseded
+by the smaller RU-WHITELIST-pruned `/tmp/geoip.dat` (1.6MB) and no
+longer read by anything.
+
+**Fix (applied):** set `loglevel` to `warning` (keeps real
+warnings/errors visible, drops the `[Info]`/`[Debug]` per-packet flood),
+truncate the existing bloated `global.log`, and remove the stale
+`/tmp/bak_v2ray` backup. This is a config-level fix, not a code change —
+no new watchdog/respawn logic was needed to resolve *this* incident's
+root cause. A watchdog/respawn mechanism (see above) remains valuable as
+defense-in-depth for *other* potential failure modes, but is no longer
+the primary mitigation for OOM specifically.
+
 ## P3 — 2026-07-18 Promote balancer stickiness setting to production: `expected='1'`
 
 **Status:** decided answer to a live question, not yet applied to any
