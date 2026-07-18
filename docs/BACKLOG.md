@@ -92,6 +92,15 @@ network connectivity overnight (~2026-07-18 02:41 MSK) and stayed down for
   was this a one-off spike?) — no data yet, needs a longer observation
   window before concluding it's a hard ceiling vs. a leak.
 
+**Recovery note (2026-07-18 12:03–12:05 MSK):** manually running
+`/etc/init.d/passwall2 restart` did restore the service (confirmed via
+`ps`, clean `passwall2.log`, and `curl` returning the proxy IP again) —
+so the outage was purely "nobody restarted it since the OOM kill ~9.5h
+earlier", not a deeper corruption. Restart itself took **~2–3 minutes**
+end-to-end (nftables rule parsing against the RU_WHITELIST geoip/geosite
+set is the slow step, ~60–90s alone) — any future watchdog/respawn
+mechanism must tolerate this before declaring a restart attempt failed.
+
 ## P3 — 2026-07-18 Promote balancer stickiness setting to production: `expected='1'`
 
 **Status:** decided answer to a live question, not yet applied to any
