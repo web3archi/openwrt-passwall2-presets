@@ -132,6 +132,31 @@ root cause. A watchdog/respawn mechanism (see above) remains valuable as
 defense-in-depth for *other* potential failure modes, but is no longer
 the primary mitigation for OOM specifically.
 
+**Verified (2026-07-18 18:16 MSK):** after truncating `global.log`,
+removing `/tmp/bak_v2ray`, and setting `loglevel='warning'` (kept at
+`warning`, not reverted all the way to upstream's `error` default —
+still useful visibility, still low-volume), a fresh restart confirmed
+recovery: `df -h /tmp` went from 84.2M used / 38.0M available to
+**5.5M used / 116.7M available** — tmpfs headroom roughly tripled.
+Xray alive, `curl` through the proxy working, restart completed in
+~1 minute (faster than the debug-log-choked restarts, since there's no
+60MB+ log file to contend with).
+
+**P4 (deferred, not urgent) — log-size safety net:** regardless of
+whatever `loglevel` ends up configured (upstream default is `error`;
+this router had drifted to `debug` from an earlier troubleshooting
+session and was never reverted — root cause of this whole incident),
+`/tmp/etc/passwall2/acl/default/global.log` lives on tmpfs (RAM) and is
+never rotated or size-capped by passwall2 itself. Standard practice
+(logrotate, journald `SystemMaxUse`, docker `log-opts max-size`) is to
+cap log files by size unconditionally rather than rely on the level
+staying low-volume forever — protects against future
+re-drift/forgetfulness or unexpectedly chatty levels over very long
+uptimes. Proposed (not yet built): a small cron entry that truncates
+`global.log` (and any other passwall2 tmpfs logs) once it exceeds a
+few MB. Low priority — `warning` level is currently low-volume and this
+is pure defense-in-depth, not an active problem.
+
 ## P3 — 2026-07-18 Promote balancer stickiness setting to production: `expected='1'`
 
 **Status:** decided answer to a live question, not yet applied to any
