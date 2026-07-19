@@ -264,3 +264,53 @@ clean outage for degraded/broken DNS instead. Needs a dedicated look
 (does this bug apply to balancer `fallback_node='_direct'` the same
 way, or only to shunt `default_node`?) before this becomes a preset
 default rather than an opt-in advanced toggle.
+
+## P6 — 2026-07-19 App IA/UI: current tentative plan (Overview / Nodes / Settings)
+
+**Status:** design notes only, logged as the *current tentative
+variant* per user request — not built, not finalized. Node-tab
+statistics content is explicitly still TBD ("уточняется").
+
+### Overview page
+- Top: an info/status panel (metrics TBD).
+- Below it: a "recent events" list sourced from wan_monitor history.
+- The same wan_monitor history is also shown in a standalone widget —
+  but the widget renders just the raw list, with none of the page's
+  surrounding info-panel/browser chrome.
+
+### Nodes tab
+- Per-node statistics — exact metrics/schema not yet decided.
+
+### Settings tab
+- An expandable/collapsible list of presets.
+- Each preset row exposes its own available settings, plus two
+  checkboxes: **show in Overview** and **show in widget**.
+- **Proposed addition (floated for discussion, not yet decided):**
+  give relevant presets a native-LuCI-style control to configure
+  fallback chains and per-domain routing, built entirely from PW2's
+  own already-loaded node list — not a free-form custom-server field,
+  since the app's core principle is "shell over PW2, no logic outside
+  it" ("если у нас только оболочка для ПВ2, наверное так правильнее
+  выбор из списка ПВ2"). Concretely:
+  - Pick a node from the loaded list → "this is fallback server #1."
+  - Click a "+" to add another → "fallback of the fallback," and so on.
+  - Each entry has a checkbox: **exclude this node from normal
+    balancer rotation** — so a node dedicated as a fallback doesn't
+    also compete as a regular leastLoad pool candidate.
+  - The *same* pick-from-list / "+" / exclude-checkbox pattern should
+    be reused for the "route specific domains through specific
+    server(s)" section (per-domain shunt assignment) — one consistent
+    UX pattern for both fallback-chain config and domain-to-node
+    routing, rather than two different widgets.
+- **Hard global design constraint:** everything must look and behave
+  like native OpenWrt/LuCI — no invented UI patterns. Every action
+  goes through the standard OpenWrt **Save / Save & Apply / Cancel**
+  buttons; no custom app-level save flow.
+
+### Relation to P5
+This is a concrete UI answer to two of the P5 native-option survey
+items — balancer `fallback_node` / shunt `default_node` chain
+selection, and per-domain routing to a specific node — both proposed
+to be exposed through the same "pick from PW2's own node list, no
+free text" pattern, keeping the Wave 1 principle of native PW2
+features only, no custom logic invented outside it.
