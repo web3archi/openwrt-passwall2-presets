@@ -157,6 +157,40 @@ uptimes. Proposed (not yet built): a small cron entry that truncates
 few MB. Low priority — `warning` level is currently low-volume and this
 is pure defense-in-depth, not an active problem.
 
+**Third occurrence, 2026-07-19 evening (different trigger, watchdog
+still not built):** `dmesg` turned up a *third* OOM-kill of xray
+(pid 13686, `anon-rss:107472kB`) — roughly 3x the RSS of the first two
+kills (~34–37MB each). Unlike incidents 1–2, `loglevel`/tmpfs were
+both already clean at the time (the P2 fix held) — this time Xray's
+own process memory itself scaled up, coincident with heavy LAN
+download traffic (NVIDIA/CUDA driver update) on a client host driving
+up concurrent connection volume through the balancer. Killswitch
+nftables rules remained loaded post-kill as always (confirmed via
+`nft list ruleset` — by-design fail-closed behavior, working as
+intended, just still with no auto-recovery).
+
+Also resolved an apparent mystery from the same incident: the user's
+"switched to direct" recovery action was *not* a passwall2/router-
+level change (no matching stop/reload lines in `passwall2.log`,
+ruleset unchanged) — it was enabling a separate wired network path on
+the client host that bypasses the OpenWrt router/PW2 entirely. The
+same-evening `wan_monitor.log`'s `LEAK DETECTED` hit on
+`91.236.238.36` is fully explained as the exit IP of that alternate,
+non-router path, not a router-side killswitch failure. **Noting for
+future incident interpretation:** "switched to direct" from the user
+does not necessarily mean a PW2 shunt/killswitch action was taken —
+confirm the mechanism before assuming router-side state changed.
+
+Net effect: the same failure mode (OOM → silent black hole, zero
+auto-recovery) has now recurred under a *second, distinct* trigger
+(connection volume under heavy client load, vs. log bloat the first
+two times). This raises the priority of the still-deferred watchdog
+(auto-detect Xray death + auto-restart, originally scoped under this
+same P2) from "nice to have" to "addressing a recurring structural
+fragility on ~244MB RAM hardware, not a single fixed bug." Decision on
+whether to actually build it now is still pending with the user — not
+yet greenlit, per "не кидаемся делать новую версию без решения."
+
 ## P3 — 2026-07-18 Promote balancer stickiness setting to production: `expected='1'`
 
 **Status: APPLIED 2026-07-19 ~13:43 MSK.** Empirical evidence from a
