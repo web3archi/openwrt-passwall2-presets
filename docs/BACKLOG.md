@@ -159,8 +159,24 @@ is pure defense-in-depth, not an active problem.
 
 ## P3 — 2026-07-18 Promote balancer stickiness setting to production: `expected='1'`
 
-**Status:** decided answer to a live question, not yet applied to any
-production/default config — tracked here per user request to "вынести
+**Status: APPLIED 2026-07-19 ~13:43 MSK.** Empirical evidence from a
+full overnight `wan_monitor.log` (2026-07-18 22:00 → 2026-07-19 13:36,
+15.6h, no monitoring gaps) justified applying this now rather than just
+deciding it: **2436 exit-IP changes in 15.6h ≈ one switch every ~23s
+on average** with `expected='2'`. Set `passwall2.wave1_bal.expected`
+from `'2'` to `'1'`, committed, restarted — pending a follow-up
+observation window to confirm switch frequency drops. Same log also
+showed: 19 distinct real exit IPs + 78 `ip=FAILED` samples, 11 brief
+`PROXY DOWN` blips and 51 `DIRECT DOWN` blips (likely clustered around
+failover moments, unconfirmed), one isolated 30–40s `NO SIGNAL` at
+2026-07-19 08:32 MSK (self-recovered, far too short to be a repeat of
+the OOM incident), and 30 `LEAK DETECTED` hits all on the same IP
+(`194.190.152.237`) — confirmed as a wan_monitor false-positive (its
+leak heuristic is tuned to an older/different node set), not a real
+leak. No genuine leak found; specifically checked and ruled out for
+IP `91.236.238.36` (never appears in the log at all).
+
+**Original context** — tracked here per user request to "вынести
 настройки в прод".
 
 **Context:** during the same Wave 1 test, the user observed the active
