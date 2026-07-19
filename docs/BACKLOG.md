@@ -202,3 +202,65 @@ UCI/config value, no code change needed.
 doesn't need to be re-discovered/re-typed by hand each time — should be
 addressed together with the no-hardcoding node-discovery logic already
 required elsewhere in this project.
+
+## P5 — 2026-07-19 Preset board: survey of PW2-native failure/fallback options
+
+**Status:** logged for future preset-board design, nothing implemented yet.
+
+**Context:** user asked whether PW2 can be configured to fall back to
+direct (unproxied) if all proxy hosts go down. Short answer: yes, but
+only for one specific failure mode — there's a second, more severe
+failure mode (the P2 OOM incident) that this does *not* cover, and the
+two need different fixes. Since "мы хотим сделать удобный пресет борд,
+а какие у людей будут предпочтения — мы не знаем," this whole area
+should land as explicit, opt-in preset-board toggles, not a silently
+chosen default — fail-open at any level trades away the anti-leak
+purpose of running a killswitch at all, and that's a per-user threat
+model decision, not ours to make for them.
+
+**Two distinct failure modes, two distinct fixes:**
+1. All `balancing_node` candidates fail health checks, but the Xray
+   *process* is still alive — natively fixable today by setting the
+   balancer's `fallback_node` to the special value `_direct`, which
+   `gen_balancer()` in
+   [`util_xray.lua`](https://github.com/Openwrt-Passwall/openwrt-passwall2/blob/main/luci-app-passwall2/luasrc/passwall2/util_xray.lua)
+   maps to Xray's `direct` (`freedom` protocol) outbound instead of
+   another proxy node. Pure UCI value, no code change.
+2. The Xray *process itself* dies (OOM, crash — this is what actually
+   happened in P2) — `fallback_node` cannot help here, since the logic
+   that would apply it lives inside the process that's now dead; the
+   nftables killswitch rules stay loaded regardless and blackhole
+   traffic. Only fixable externally, by the P2 watchdog: on detected
+   Xray death, either (a) restart Xray — default, privacy-preserving,
+   or (b) explicitly flush/relax the nftables killswitch rules to allow
+   direct — opt-in, availability-preserving. This choice belongs on the
+   preset board too, as its own toggle, not bundled with (1).
+
+**Other PW2-native options worth surveying for the preset board (found
+while researching this, not yet each individually vetted):**
+- Shunt-level `default_node`/rule node accepts the same `_direct`
+  special value, not just balancer `fallback_node` — used by community
+  scripts (e.g. [`passwall-auto-switch.sh`](https://gist.github.com/fakhamatia/d84bdddc39f555bef30574185a19bc53):
+  `uci set passwall2.myshunt.default_node="_direct"`) as a manual
+  one-click "emergency direct" toggle, independent of the automatic
+  all-nodes-down fallback in item 1. Could be a separate dashboard
+  button.
+- ACL per-source `tcp_no_redir_ports`/`udp_no_redir_ports` let specific
+  LAN devices/IP ranges bypass the proxy entirely regardless of global
+  killswitch/proxy health — worth a preset toggle for "always-direct
+  devices" (smart TV, IoT, etc.), orthogonal to the failure-handling
+  toggles above.
+- Shunt already has three explicit lanes (Reject=blackhole/drop,
+  Direct, Proxy) — worth double-checking any preset doesn't hardcode
+  the Reject lane (ad-block, etc.) in a way that conflicts with a
+  `_direct` fallback added later.
+
+**Known pitfall to check before wiring `_direct` into any preset:**
+[xiaorouji/openwrt-passwall2 issue #439](https://github.com/xiaorouji/openwrt-passwall2/issues/439)
+documents that setting a shunt's default node to direct can silently
+break remote DNS resolution for domains that were relying on the proxy
+node's DNS server list — i.e. failing over to `_direct` might trade a
+clean outage for degraded/broken DNS instead. Needs a dedicated look
+(does this bug apply to balancer `fallback_node='_direct'` the same
+way, or only to shunt `default_node`?) before this becomes a preset
+default rather than an opt-in advanced toggle.
