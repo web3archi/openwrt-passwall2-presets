@@ -279,7 +279,65 @@ statistics content is explicitly still TBD ("уточняется").
   surrounding info-panel/browser chrome.
 
 ### Nodes tab
-- Per-node statistics — exact metrics/schema not yet decided.
+- Per-node statistics table, sortable by every column (click column
+  header — pure UI sort over already-native data, no new routing
+  logic, doesn't violate the "native PW2 only" principle). Candidate
+  columns, drafted 2026-07-19:
+  1. Last URL-response measurement (full HTTP(S) round-trip through
+     the tunnel to a test URL — reflects real browsing feel: DNS+TCP+
+     TLS+HTTP through the proxy).
+  2. Average URL-response time across all measurements for that node.
+  3. Uptime %, historical — over the entire observed lifetime of the
+     node.
+  4. Uptime %, last 24h — deliberately separate from (3): a node can
+     look great on lifetime % while having quietly degraded very
+     recently; the 24h window surfaces that immediately.
+  5. Plain ping/latency to the node's own endpoint (TCP-connect or
+     ICMP, *without* the proxy protocol overhead) — isolates "bad
+     network path to the server" from "bad protocol/cipher overhead
+     on MT7621," since (1)/(2) and (5) can disagree and that
+     disagreement itself is diagnostic.
+  6. Jitter / latency variance — a node averaging 100ms but swinging
+     50–500ms behaves worse in practice than a steady 150ms node;
+     average alone hides this.
+  7. Packet loss % (from the plain ping check).
+  8. Consecutive-failure streak ("flappiness") — a node with 95%
+     uptime that fails in bursts of 10 in a row behaves worse than one
+     with the same 95% but isolated single blips; plain uptime % can't
+     tell these apart.
+  9. % of time this node was the *actual selected* exit IP (not just
+     "available") — directly derivable today from wan_monitor.log's
+     exit-IP-changed history, cross-referenced by IP.
+  10. Time since last failure ("stable for Xh") — quick at-a-glance
+      freshness indicator.
+  11. Provider/location label, if present in the node's remarks or
+      subscription metadata — lets the user visually group and spot
+      "all the flaky ones are from provider X" patterns.
+  12. Count of `LEAK DETECTED` hits attributed to this node (per the
+      wan_monitor false-positive discussion) — not treated as a real
+      leak signal, but tracked as a diagnostic flag in case a specific
+      node behaves atypically often for reasons worth a closer look
+      later.
+
+  **Open technical question (not yet resolved):** PW2's own LuCI GUI
+  typically caches only the *latest* single ping value per node, not a
+  time series — so columns 2–4, 6, 8, 10 need *some* background
+  sampler maintaining history (either reading Xray's own
+  Observatory/API balancer probe results if accessible, or an
+  extension of the existing external URLTest-style polling). This is
+  a monitoring/dashboard-layer addition (same category as the existing
+  `net-watch-tools-dashboard`/wan_monitor tooling), not a change to
+  PW2's own routing logic, so it doesn't conflict with the Wave 1
+  "native PW2 only" principle for the proxy path itself — but the
+  concrete data source still needs to be picked before this table can
+  be built.
+
+- **Deferred to a later version (user's own call, not urgent):**
+  per-node quick actions right in this table — "switch to this node
+  now," "make this a fallback node," "assign this node to a specific
+  domain/direction." Cheap to add later since it maps directly onto
+  existing UCI fields from P5/P6 (`uci set` + `commit` + apply on
+  `default_node`/`fallback_node`/shunt rules) — just not in this pass.
 
 ### Settings tab
 - An expandable/collapsible list of presets.
