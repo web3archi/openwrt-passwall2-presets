@@ -1,0 +1,15 @@
+{
+	"luci-app-passwall2-presets": {
+		"description": "Grant access to the PassWall2 Presets Observer status/log files and config",
+		"read": {
+			"file": {
+				"/tmp/passwall2_presets/observer_watchdog.status": [ "read" ],
+				"/tmp/passwall2_presets/observer_watchdog.log": [ "read" ]
+			},
+			"ubus": {
+				"file": [ "read", "stat" ]
+			},
+			"uci": [ "passwall2_presets" ]
+		}
+	}
+}

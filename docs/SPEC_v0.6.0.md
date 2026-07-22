@@ -452,6 +452,10 @@ config preset 'always_direct_devices'
 not built, not finalized. Supersedes the original Overview/Nodes/Help/Widget draft.**
 
 ### Overview page
+**Built, 2026-07-22** — page + widget shipped exactly per the spec below, see roadmap
+item 6 in §5 for file paths. Settings tab is still not built; the IA/metrics decisions
+below are otherwise final, not tentative.
+
 **Status panel content, decided 2026-07-22 (was "exact metrics still TBD"):**
 - **Node count — RESOLVED 2026-07-22: use the fallback, no live Observatory query.**
   Xray's own **Observatory/BurstObservatory** feature (confirmed in
@@ -602,8 +606,20 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
    URLTest, `expected='1'`/`leastLoad` as the "Most stable" default, plus the
    `fallback_direct_enabled` opt-in toggle and its issue #439 DNS-caveat UI copy.
    **Not started.**
-6. LuCI Overview + Widget, backed by Observer data. **Not started** — IA drafted in §4,
-   exact Overview metrics still TBD.
+6. LuCI Overview + Widget, backed by Observer data. **Done, 2026-07-22.** Read-only
+   Overview page at `admin/services/passwall2-presets/overview`
+   (`files/www/luci-static/resources/view/passwall2-presets/overview.js`) rendering
+   the full status JSON (watchdog badge, Xray alive, active balancer, node counts,
+   Probes A-D) plus a tailed recent-events log view, auto-polling via `poll.add`.
+   Companion native Status > Overview widget
+   (`files/www/luci-static/resources/view/status/include/60_passwall2-presets.js`)
+   shows only the raw tailed log per §4's spec, auto-discovered by
+   `luci-mod-status`'s own include mechanism. Menu entry
+   (`files/usr/share/luci/menu.d/luci-app-passwall2-presets.json`) and ACL grant
+   (`files/usr/share/rpcd/acl.d/luci-app-passwall2-presets.json`) for the status/log
+   files ship alongside. Settings tab (editing probes/watchdog config) remains
+   **not started** — router config must still be edited directly via
+   `/etc/config/passwall2_presets`.
 7. Preset B (Shunt-based bypass). **Not started.**
 8. Nodes tab — 12-column sortable metrics table per §4, once the time-series data-source
    question is resolved. **Not started.**
