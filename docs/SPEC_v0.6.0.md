@@ -513,6 +513,18 @@ below are otherwise final, not tentative.
   CSS variables (the bootstrap theme has no native `.label.danger` modifier — only
   `.btn`/`.alert-message`/`.cbi-tooltip` get a danger/error variant — so this reuses
   the same design tokens rather than inventing a new red).
+- **Page header/description/section-title removed, 2026-07-22 evening (this round):**
+  the `<h2>PassWall2 Presets — Overview</h2>` title, the `<p class="cbi-value-description">`
+  paragraph below it ("Live status from the Observer probe loop... Settings tab for
+  editing probes and the watchdog is planned but not built yet..."), and the
+  `<h3>Status</h3>` sub-heading above the status panel are all removed from
+  `overview.js`. Rationale: the menu entry itself already carries the page title
+  (native LuCI chrome), so the in-page `<h2>` duplicated it; the description paragraph
+  is now stale now that Settings is actively being built (this iteration); and
+  "Status" as a section label added nothing the panel content didn't already convey.
+  The status panel (`this.panelNode`) now renders directly inside a bare
+  `cbi-section` div, no heading above it. "Recent events" keeps its own `<h3>`
+  unchanged.
 
 ### Nodes tab
 Per-node statistics table, sortable by every column (click column header — pure UI sort
@@ -567,6 +579,32 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
 - An expandable/collapsible list of presets.
 - Each preset row exposes its own available settings, plus two checkboxes: **show in
   Overview** and **show in widget**.
+- **Preset A ("Best node") scope, decided 2026-07-22 evening: read state AND write/switch
+  strategy are built together in the same pass, not read-only first.** The underlying
+  balancing behavior (Xray `leastLoad`+`expected='1'` — "Most stable", currently live in
+  production; `leastPing`/higher `expected` — "Fastest", previously tested manually) is
+  already proven and running on the router — configured by hand via PW2's own native
+  pages, not through this addon. What Settings adds is (1) reading and displaying the
+  currently active strategy/params, and (2) a generator that writes the chosen strategy
+  (Fastest / Most stable / Manual with auto-restore — see §2 table) into
+  `passwall2.<balancer>.*` when saved, plus the `fallback_direct_enabled` toggle with its
+  issue #439 DNS caveat surfaced in the UI before enabling.
+  - **"Manual with auto-restore" clarified:** this is PW2's own **SOCKS Auto Switch**
+    feature, a distinct mechanism from Balancing/URLTest — a dedicated SOCKS server
+    wrapping a fixed **Main node** + an ordered manual **List of backup nodes** +
+    **Restore Switch** (switch back to Main once it's healthy again), then used as a
+    Socks-type node pointed at `127.0.0.1:<port>`. Unlike Fastest/Most stable (algorithm
+    picks the winner by metric), Manual is an explicit, user-ordered fallback chain.
+- **Widget configuration — decided 2026-07-22 evening: a dedicated "Widget" collapsible
+  section in Settings, built with native OpenWrt/LuCI CBI components only (same
+  constraint as everything else on this page — no custom JS-only widgets).** Lists every
+  field currently shown on the Overview status panel (watchdog status, Xray process,
+  Probe A/B/C/D, last updated, configured nodes, active balancer, flag/country label,
+  "unchanged for Xm", etc.), each with exactly one checkbox: show this field in the
+  compact widget or not. Confirmed design principle: the widget is conceptually a mirror
+  of the Overview panel, but is deliberately meant to stay compact — the whole point of
+  a widget is to show less, not everything — so this checkbox list is how the user
+  trims it down per field, rather than the widget always mirroring 100% of Overview.
 - **Fallback-chain and per-domain routing UX (proposed, not yet decided):** built
   entirely from PW2's own already-loaded node list — not a free-form custom-server
   field, since the app's core principle is "shell over PW2, no logic outside it."

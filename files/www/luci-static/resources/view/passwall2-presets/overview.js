@@ -270,15 +270,7 @@ return view.extend({
 		]);
 
 		var container = E([
-			E('h2', {}, [ _('PassWall2 Presets — Overview') ]),
-			E('p', { 'class': 'cbi-value-description' }, [
-				_('Live status from the Observer probe loop (see files/etc/passwall2-presets/' +
-				  'observer_watchdog.sh). Read-only — the Settings tab for editing probes and ' +
-				  'the watchdog is planned but not built yet; edit /etc/config/passwall2_presets ' +
-				  'on the router directly for now.')
-			]),
 			E('div', { 'class': 'cbi-section' }, [
-				E('h3', {}, [ _('Status') ]),
 				this.panelNode
 			]),
 			E('div', { 'class': 'cbi-section' }, [

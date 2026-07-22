@@ -676,3 +676,58 @@ feedback on the standalone page (screenshot-verified):
   keeps a checkbox from sitting above its label's baseline. Fix: the checkbox row
   now reuses the exact same `row()` table markup as the Status panel — one
   consistent row style for the whole page, not a second invented one.
+
+
+## P8 — 2026-07-22 evening: Settings tab scoping decisions (Preset A + Widget config)
+
+**Status:** decisions logged, nothing coded yet beyond the Overview cleanup below —
+this sets scope for the Settings-tab implementation about to start.
+
+**Decision 1 — Preset A: read + write together, not read-only first.** The user
+pointed out that "Preset A not started at all" was an imprecise framing: the
+balancing *behavior* Preset A describes is already live and proven on the router —
+`leastLoad`+`expected='1'` ("Most stable", production since 2026-07-19, see P3) and
+`leastPing`/higher `expected` ("Fastest", tested manually, see P3's `expected='2'`
+data) — just configured by hand through PW2's own native pages, not through this
+addon. What's actually missing is the addon-side wrapper: reading/displaying the
+active strategy, and a generator that writes the user's choice into
+`passwall2.<balancer>.*`. Both the read side and the write/generator side will be
+built in the same pass for v1, per explicit user confirmation ("да" to "делаем и
+чтение, и переключение вместе").
+
+**Clarified — "Manual with auto-restore" strategy.** Not an algorithm-driven pick
+(unlike Fastest/Most stable); this maps to PW2's own **SOCKS Auto Switch** feature:
+a separate SOCKS server wrapping a fixed **Main node** + ordered manual **List of
+backup nodes** + **Restore Switch** checkbox (auto-return to Main once healthy),
+then used as a Socks-type node at `127.0.0.1:<port>`. Source: PW2's own translation
+strings ([`passwall2.po`](https://gitea.dongshanxia.top:35000/openwrt/openwrt-packages/raw/commit/d720556b4174092446413de2c7f71b769790a805/luci-app-passwall2/po/zh-cn/passwall2.po)).
+
+**Decision 2 — dedicated "Widget" checkbox list in Settings.** Confirmed design
+principle: the widget is conceptually a mirror of the Overview status panel, but is
+*deliberately* meant to stay compact — showing less is the entire point of a widget,
+so it should not default to 100% parity with Overview. Concretely: Settings gets a
+collapsible **Widget** section (native OpenWrt/LuCI CBI components only, same
+constraint as the rest of the page) enumerating every field currently rendered on
+the Overview status panel (watchdog status, Xray process, Probes A–D, last updated,
+configured nodes, active balancer, flag/country label, "unchanged for Xm", etc.),
+each with exactly one checkbox: show this field in the widget or not. This
+concretizes the existing "show in widget" concept from the original Settings-tab
+note (§4) — that note was per-preset; this is the field-level mechanism specifically
+for the widget's own content.
+
+**Executed this round — Overview page header/description/section-title cleanup.**
+Per explicit instruction, removed from `overview.js`:
+- `<h2>PassWall2 Presets — Overview</h2>` (menu entry already carries the title).
+- The `<p class="cbi-value-description">` paragraph ("Live status from the Observer
+  probe loop... Settings tab for editing probes and the watchdog is planned but not
+  built yet; edit /etc/config/passwall2_presets on the router directly for now.") —
+  stale now that Settings is actively being built.
+- `<h3>Status</h3>` above the status panel — added nothing the panel itself didn't
+  already convey.
+
+The status panel (`this.panelNode`) now sits directly inside a bare `cbi-section`
+div with no heading. "Recent events" keeps its own `<h3>` unchanged. See
+`docs/SPEC_v0.6.0.md` §4 "Overview page" for the corresponding spec update.
+
+**Not yet done:** the actual Settings tab implementation (menu entry, view file,
+Preset A read+write logic, Widget checkbox list) — scoping only, per this entry.
