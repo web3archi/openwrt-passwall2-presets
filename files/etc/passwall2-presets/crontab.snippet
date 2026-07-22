@@ -1,0 +1,5 @@
+# Not auto-installed. Append these two lines to /etc/crontabs/root on the router, then
+# `/etc/init.d/cron restart`. crond's native granularity is 1 minute, so two lines offset
+# by `sleep 30` give ~30s effective polling without a persistent daemon process.
+* * * * * /etc/passwall2-presets/observer_watchdog.sh
+* * * * * sleep 30; /etc/passwall2-presets/observer_watchdog.sh

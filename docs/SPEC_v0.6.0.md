@@ -374,7 +374,9 @@ confirmed unreliability. Design done, script drafted, not yet deployed to the ro
 
 ## 3. Addon UCI schema (draft, for discussion — updated for §0.3/§2 opt-in toggles)
 
-A separate config, not mixed with `passwall2`:
+A separate config file, `/etc/config/passwall2_presets` (package `passwall2_presets`),
+not mixed with `passwall2`. Template shipped at `files/etc/config/passwall2_presets` in
+this repo, consumed by `files/etc/passwall2-presets/observer_watchdog.sh`:
 
 ```
 config global 'main'
@@ -445,18 +447,16 @@ not built, not finalized. Supersedes the original Overview/Nodes/Help/Widget dra
 
 ### Overview page
 **Status panel content, decided 2026-07-22 (was "exact metrics still TBD"):**
-- **Node count:** total configured nodes vs. currently-working nodes. Native source is
+- **Node count — RESOLVED 2026-07-22: use the fallback, no live Observatory query.**
   Xray's own **Observatory/BurstObservatory** feature (confirmed in
   [`util_xray.lua`](https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall2/main/luci-app-passwall2/luasrc/passwall2/util_xray.lua):
-  `subjectSelector = {"blc-"}`, `probeInterval`) — this is what PW2's own balancer
-  already uses, not something we duplicate. **Open item:** whether Xray's API inbound is
-  enabled on this router (needed to query Observatory live) is unconfirmed as of
-  2026-07-22 — `uci show passwall2 | grep -i api` only surfaced unrelated
-  `tls_serverName` matches, since the API inbound (if present) is generated into the
-  runtime Xray JSON config, not stored in UCI. Pending: grep the generated config
-  (`/tmp/etc/passwall2/*.json` or `/var/etc/passwall2/*.json`) for `"api"`. Fallback if
-  no API inbound exists: total from `passwall2.@nodes[*]` vs. count in the active
-  balancer's `valid_nodes` selector — cruder, but discovery-based, no hardcoding.
+  `subjectSelector = {"blc-"}`, `probeInterval`) is what PW2's own balancer already uses
+  internally for node health — but that same file never builds an Xray
+  `ApiConfig`/`HandlerService`/`StatsService` block, so **PW2 does not expose an API
+  inbound to query it live at all** (not a per-router config question — it's absent from
+  the code path). Implementation: total from `passwall2.@nodes[*]` vs. count in the
+  active balancer's `valid_nodes` selector — cruder, but still discovery-based, no
+  hardcoding. See `docs/BACKLOG.md` P7 for the full trail.
 - **Probe A (leak monitor):** current exit IP through the proxy, plus healthy/unhealthy
   state — the one indicator meant primarily for the end user, not just for diagnostics.
 - **Watchdog status:** ok / degraded (probe failed but Xray alive — not our failure mode)
@@ -552,9 +552,22 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
    replace `monitor.sh`, sits on top of it. Design/implementation is the new next step
    (item 3a below).
 3a. Design + implement the Xray-death watchdog (detection loop, restart action, logging,
-    opt-in `xray_dead_action` toggle wiring per §3). **Not started.**
-4. Observer prototype (no UI) — reuse/adapt the existing `wan_monitor.sh` approach, add
-   current-node detection via SOCKS-port discovery. **Not started.**
+    opt-in `xray_dead_action` toggle wiring per §3). **Script written 2026-07-22, not
+    yet deployed** — `files/etc/passwall2-presets/observer_watchdog.sh` in this repo,
+    syntax-checked (`sh -n`), merged with item 4 below (same probe loop, per the §0.2/§2
+    watchdog-merge decision). Router intentionally left in its OOM #4 broken state as a
+    live test bed (user's call, 2026-07-22) — deploy via `scp -O` when ready to test.
+4. Observer prototype (no UI) — all four probes (A/B/C/D). **Script written
+    2026-07-22, not yet deployed.** Config template at `files/etc/config/passwall2_presets`
+    (package `passwall2_presets`, ships with region-neutral Probe A/C IP-checker
+    defaults only — Probe B/D disabled until the user fills in a host, no regional
+    defaults, per standing policy). Cron snippet (not auto-installed) at
+    `files/etc/passwall2-presets/crontab.snippet`. **Known limitation, not silently
+    faked:** node count can only report the active balancer's configured pool size
+    (`balancing_node`, discovered dynamically) — a live "currently healthy" count is not
+    available anywhere in UCI since PW2 doesn't expose an Xray API inbound (§4, BACKLOG
+    P7); the status JSON reports this field as `"unavailable_no_xray_api"` rather than
+    guessing a number.
 5. Preset A (auto-selection engine) — UCI generator for Xray Balancing / sing-box
    URLTest, `expected='1'`/`leastLoad` as the "Most stable" default, plus the
    `fallback_direct_enabled` opt-in toggle and its issue #439 DNS-caveat UI copy.
