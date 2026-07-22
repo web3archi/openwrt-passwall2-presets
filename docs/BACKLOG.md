@@ -459,7 +459,9 @@ features only, no custom logic invented outside it.
 
 ## P7 — 2026-07-22 Observer/watchdog design: 4 probes (A/B/C/D) + Overview status panel
 
-**Status: design decided, not yet built.** Confirmed with the user (2026-07-22
+**Status: built, deployed to the router, live-tested successfully — 2026-07-22
+~16:10–16:20 MSK. See "Deployed and live-tested" below for the run log and two bugs
+found/fixed during first deploy.** Confirmed with the user (2026-07-22
 ~14:27 MSK) that the Xray-death watchdog (P2/§0.2 decision) is not a separate
 component — it's the same Observer probe loop, extended. Four distinct probes,
 confirmed mapping:
@@ -530,3 +532,61 @@ open question this reopens about incident #3's actual revival mechanism
 contradicts). No change to the watchdog plan itself — the "clear stale lock"
 remediation idea is dropped (nothing to clear); Probe A + `pgrep xray` + grace
 period restart stands as designed.
+
+**Deployed and live-tested — 2026-07-22 ~16:10–16:20 MSK.** Shipped
+`files/etc/passwall2-presets/observer_watchdog.sh`,
+`files/etc/config/passwall2_presets`, and
+`files/etc/passwall2-presets/crontab.snippet` (commit `7a16246`), deployed via
+`scp -O` to the router (still in its OOM #4 broken state, intentionally, as the
+live test bed) and wired into `/etc/crontabs/root`.
+
+Run log (router local time), read straight from `observer_watchdog.log`:
+
+```
+13:13:30  Probe A failed + xray not running — grace period started (30s)
+13:14:00  down 30s (grace expired) -> /etc/init.d/passwall2 restart   [1st attempt]
+13:14:30  restart didn't confirm in time -> back to down-in-grace
+13:14:30–13:15:30  still down, cooldown (120s) not elapsed -> not retrying
+13:16:00  down 150s (cooldown elapsed, grace re-expired) -> restart   [2nd attempt]
+13:16:30  restarting -> degraded
+13:17:01  degraded -> ok, Probe A confirms real exit IP
+```
+
+**Result: full unattended recovery** from an hours-long dead state (OOM #4 was
+at 03:00:57 MSK, ~13h earlier) — the first restart attempt didn't bring Xray up
+in time and the state machine correctly avoided restart-looping by respecting
+the `RESTART_COOLDOWN` (120s, currently hardcoded, not yet a UI toggle — see
+"still open" below); the second attempt succeeded. No human action taken on the
+router itself during the recovery.
+
+**Two bugs found on this first deploy, both fixed and confirmed live** (neither
+catchable by `sh -n` alone — no router access from the sandbox to test against
+beforehand, per this project's standing constraint):
+
+1. **UCI section-name collision** (`uci show passwall2_presets` failed with
+   "section of different type overwrites prior section with same name"): the
+   config template gave both `config global` and `config observer` the same
+   section name `'main'` — UCI requires section names unique file-wide,
+   regardless of type. Fixed by renaming the `global` section to `'global'`,
+   leaving `observer 'main'` untouched (that's the name the script actually
+   reads). Commit `43671c7`.
+2. **Node count always read `1` instead of the real `27`**: `uci -q get` on a
+   list-type option returns all values space-separated on **one line** on this
+   router's `uci` build, not one-per-line as the original `uci_get_list()`
+   comment assumed. Counting via `grep -c .` counts lines, so it always saw
+   exactly 1 line regardless of how many nodes were configured. Fixed by
+   counting via `set -- $(uci_get_list ...); TOTAL_NODES=$#`, which counts
+   whitespace-separated tokens through the shell's own word-splitting and
+   doesn't depend on `uci`'s exact line format. Commit `27e18ca`. Confirmed
+   live: `total_configured` now correctly reads `27` against `wave1_bal`.
+
+**Still open / not yet exercised:**
+- Probes B and D ship disabled with no default hosts (by design, per the
+  no-regional-hardcoding policy) — not yet configured or tested live.
+- Probe C ships disabled — needs the user's own direct/shunt rule set up first
+  (documented as a prerequisite, not auto-configured).
+- `RESTART_COOLDOWN=120` is still an internal hardcoded safety constant, not a
+  UI-exposed opt-in toggle. Candidate for a future BACKLOG item if it ever
+  needs tuning.
+- LuCI Overview/widget to actually display `observer_watchdog.status` — not
+  started (SPEC §5 item 6).

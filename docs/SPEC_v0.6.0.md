@@ -370,7 +370,8 @@ Probe A (§2 Observer, "IP via proxy / leak monitor") below: when Probe A fails 
 default 30s, UI range 0–180s, to give `monitor.sh` a chance first) it runs
 `/etc/init.d/passwall2 restart`. Action is an explicit opt-in toggle
 (`observer.main.xray_dead_action`, §3) per §0.3 item 2, defaulting to `restart` given the
-confirmed unreliability. Design done, script drafted, not yet deployed to the router.
+confirmed unreliability. **Deployed and live-tested on the router 2026-07-22** — see §5
+item 3a for the deployment log and the two bugs found/fixed during first deploy.
 
 ## 3. Addon UCI schema (draft, for discussion — updated for §0.3/§2 opt-in toggles)
 
@@ -557,22 +558,46 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
    replace `monitor.sh`, sits on top of it. Design/implementation is the new next step
    (item 3a below).
 3a. Design + implement the Xray-death watchdog (detection loop, restart action, logging,
-    opt-in `xray_dead_action` toggle wiring per §3). **Script written 2026-07-22, not
-    yet deployed** — `files/etc/passwall2-presets/observer_watchdog.sh` in this repo,
-    syntax-checked (`sh -n`), merged with item 4 below (same probe loop, per the §0.2/§2
-    watchdog-merge decision). Router intentionally left in its OOM #4 broken state as a
-    live test bed (user's call, 2026-07-22) — deploy via `scp -O` when ready to test.
-4. Observer prototype (no UI) — all four probes (A/B/C/D). **Script written
-    2026-07-22, not yet deployed.** Config template at `files/etc/config/passwall2_presets`
+    opt-in `xray_dead_action` toggle wiring per §3). **Done — deployed and live-tested
+    2026-07-22 ~16:10–16:20 MSK.** `files/etc/passwall2-presets/observer_watchdog.sh`,
+    merged with item 4 below (same probe loop, per the §0.2/§2 watchdog-merge decision).
+    Deployed via `scp -O` to `/etc/passwall2-presets/` on the still-broken (OOM #4) router
+    as its own live test bed (user's call). **Live result:** watchdog detected the dead
+    Xray, waited the 30s grace period, issued `/etc/init.d/passwall2 restart` at 13:14:00
+    router time — that first attempt didn't bring Xray up in time and the state machine
+    fell back to `down-in-grace`; correctly held off retrying through the 120s
+    `RESTART_COOLDOWN` rather than restart-looping; second restart at 13:16:00 succeeded,
+    reaching `ok` with a confirmed real exit IP by 13:17:01 — full unattended recovery from
+    an hours-long dead state, no human action taken on the router itself.
+
+    **Two bugs found and fixed during this first deploy** (both from real `uci`/router
+    behavior that couldn't have been caught by `sh -n` alone, since the sandbox has no
+    router access to test against):
+    - UCI section-name collision: the config template used the same section name `'main'`
+      for both `config global` and `config observer`, which UCI rejects file-wide
+      regardless of type ("section of different type overwrites prior section with same
+      name"). Fixed by renaming the `global` section to `'global'` (commit `43671c7`).
+    - Node count always reported `1` instead of the real `27`: `uci -q get` on a
+      list-type option returns all values space-separated on **one line** on this
+      router's `uci` build, not one-per-line as the original code assumed — counting via
+      `grep -c .` counts lines, not values. Fixed by counting via `set --
+      $(uci_get_list ...); TOTAL_NODES=$#`, which counts whitespace-separated tokens
+      through the shell's own word-splitting regardless of `uci`'s line format (commit
+      `27e18ca`). Confirmed on the live router: `total_configured` now correctly reads
+      `27` against the `wave1_bal` balancer.
+4. Observer prototype (no UI) — all four probes (A/B/C/D). **Done — deployed alongside
+    3a, same live test.** Config template at `files/etc/config/passwall2_presets`
     (package `passwall2_presets`, ships with region-neutral Probe A/C IP-checker
     defaults only — Probe B/D disabled until the user fills in a host, no regional
     defaults, per standing policy). Cron snippet (not auto-installed) at
-    `files/etc/passwall2-presets/crontab.snippet`. **Known limitation, not silently
-    faked:** node count can only report the active balancer's configured pool size
-    (`balancing_node`, discovered dynamically) — a live "currently healthy" count is not
-    available anywhere in UCI since PW2 doesn't expose an Xray API inbound (§4, BACKLOG
-    P7); the status JSON reports this field as `"unavailable_no_xray_api"` rather than
-    guessing a number.
+    `files/etc/passwall2-presets/crontab.snippet`, appended manually to
+    `/etc/crontabs/root`. Probe A confirmed live (`ok`, real exit IP). Probes B/C/D not
+    yet exercised — they ship disabled/no-hosts by design and the user hasn't configured
+    them yet. **Known limitation, not silently faked:** node count can only report the
+    active balancer's configured pool size (`balancing_node`, discovered dynamically,
+    confirmed `27` live) — a live "currently healthy" count is not available anywhere in
+    UCI since PW2 doesn't expose an Xray API inbound (§4, BACKLOG P7); the status JSON
+    reports this field as `"unavailable_no_xray_api"` rather than guessing a number.
 5. Preset A (auto-selection engine) — UCI generator for Xray Balancing / sing-box
    URLTest, `expected='1'`/`leastLoad` as the "Most stable" default, plus the
    `fallback_direct_enabled` opt-in toggle and its issue #439 DNS-caveat UI copy.
