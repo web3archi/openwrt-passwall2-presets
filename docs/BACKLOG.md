@@ -952,3 +952,72 @@ this router's real `passwall2` state — that requires the deploy step below.
    `uci show passwall2 | grep wave1_bal` sanity check before/after to be certain);
    test at least one strategy switch and confirm it doesn't disrupt the live
    `wave1_bal` balancer or its 27-node pool.
+
+## P11 — 2026-07-22 night: BUG found on router — strategy read shows "not currently set" despite live leastLoad
+
+**Reported by user after router deploy of P10.** Settings > Best node (Preset A)
+showed strategy as "— not currently set via this addon —" immediately after
+deploy, even though production `wave1_bal` was already confirmed
+`balancingStrategy='leastLoad'`/`expected='1'` (see docs/SPEC_v0.6.0.md §6). User
+manually selected "Most stable" and hit Save & Apply; page reloaded, Overview
+showed roughly-normal statuses, and after ~3 minutes everything settled back to
+working. **Not yet root-caused with full router-side confirmation — hypothesis
+below, needs verification next session before touching code.**
+
+**Working hypothesis.** `strategy.cfgvalue()` in `settings.js` only checks
+`uci.get('passwall2', '@global[0]', 'tcp_node')` against the discovered balancer's
+own section name to decide "is this balancer currently active". But the `uci show`
+snapshot the user pulled earlier this session shows:
+
+```
+passwall2.rulenode.default_node='wave1_bal'
+```
+
+— i.e. this router's PassWall2 appears to route the balancer through a
+**`rulenode.default_node`** pointer (rule-based mode), not (necessarily) through
+`global.tcp_node`. If `global.tcp_node` is unset, empty, or pointing at something
+else on this router, `cfgvalue()`'s early `if (!tcpNode) return '';` fires and the
+whole detection short-circuits to "not currently set" — regardless of what
+`balancingStrategy` actually says. `strategy.write()` has the same blind spot: it
+only repoints `@global[0].tcp_node`/`udp_node`, so if this router's live routing
+key is actually `rulenode.default_node`, the Save & Apply that "worked" may have
+worked because it *also* happened to set `global.tcp_node` for the first time
+(newly creating/changing that key, which is plausibly what triggered the Xray
+restart and ~3 min downtime) rather than because the addon correctly detected and
+preserved the pre-existing state.
+
+**Next session, before writing any fix:**
+1. Pull a full `uci show passwall2 | grep -E '^passwall2\.(global|rulenode)\.'` (or
+   just `uci show passwall2.@global[0]` + `uci show passwall2.rulenode`) from the
+   router to see the *actual* current values of `global.tcp_node`,
+   `global.udp_node`, `global.tcp_proxy_mode`/`global.mode` (or whatever PW2 calls
+   its global/rule-based mode switch — name TBD, don't guess), and
+   `rulenode.default_node`, both to confirm the hypothesis and to learn what
+   "rule-based mode" actually looks like in this PW2 version's UCI schema.
+2. Check PassWall2's own Lua source (`etc/config/passwall2` defaults or the
+   `luci-app-passwall2` cbi/model files, same approach used to confirm
+   `socks_config.lua` fields earlier this project) for what field(s) actually
+   determine "which node/balancer is live" when the global mode is rule-based vs.
+   global/all-traffic — don't hardcode a guess.
+3. Once confirmed, fix `findBalancerSection()`'s *caller-side* logic (cfgvalue +
+   write, in both `strategy` and eventually anywhere else that assumes
+   `global.tcp_node` is the single source of truth) to check whichever field(s)
+   this router's active mode actually uses, falling back sanely if the field name
+   varies by mode.
+4. Re-verify against the **known-good snapshot already on record** (P10/§6):
+   `wave1_bal`: `balancingStrategy='leastLoad'`, `expected='1'`, `tolerance='10'`,
+   `fallback_node='JsIDZcgP'`, 27 `balancing_node` entries — cfgvalue() must report
+   "Most stable" against this snapshot *without* the user needing to re-click
+   anything, and write() must be a true no-op (no UCI diff, no Xray restart) when
+   the user opens Settings and hits Save & Apply without changing the dropdown.
+
+**Impact assessment:** not destructive — the balancer's own 27-node pool,
+`fallback_node`, `expected`/`tolerance` were untouched; only a routing pointer
+field was potentially (re)written and a restart triggered. Production is confirmed
+back to normal per user report. Treat as a correctness/UX bug (wrong "not set"
+readout, unnecessary restart on an otherwise no-op save), not a data-loss or
+security issue.
+
+**Status:** open, root-cause unconfirmed, no code changes made in response to this
+report yet — deliberately deferred to next session per user request to wrap up for
+tonight.
