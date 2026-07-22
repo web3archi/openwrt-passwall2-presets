@@ -188,8 +188,58 @@ two times). This raises the priority of the still-deferred watchdog
 (auto-detect Xray death + auto-restart, originally scoped under this
 same P2) from "nice to have" to "addressing a recurring structural
 fragility on ~244MB RAM hardware, not a single fixed bug." Decision on
-whether to actually build it now is still pending with the user — not
-yet greenlit, per "не кидаемся делать новую версию без решения."
+whether to actually build it now was deferred at this point — see
+fourth occurrence below, which resolved it.
+
+**Fourth occurrence, 2026-07-22 ~03:01 MSK — resolves the `monitor.sh`
+reliability question, watchdog now greenlit:** `dmesg` showed a fourth
+OOM-kill of xray (pid 8472, `anon-rss:35904kB` — back in the ~34–37MB
+range of incidents 1–2, not the 107MB outlier of incident 3). Computed
+from `uptime`/`date` at diagnosis time: boot 2026-07-17 14:22:39 UTC,
+OOM at uptime 380297.69s = 2026-07-22 00:00:57 UTC = **03:00:57 MSK**.
+User reported "no internet on clients" at ~12:05 MSK the same day and a
+fresh diagnostic dump was taken at 12:06:35 MSK (09:06:35 UTC) — **9h5m
+after the kill, with zero auto-recovery**:
+- `ps w` showed no `xray` process at all (confirmed dead, not hung).
+- `monitor.sh` itself *was* alive and running (`pid 8476`, matching the
+  process PW2 spawned right after incident #3's silent respawn) — so
+  this is not a case of the watchdog script itself being absent or
+  killed. It was running and simply did not restart Xray within 9+
+  hours, versus the ~58–64s the code (`monitor.sh` source, `pgrep`-based
+  loop) implies it should.
+- `nft list ruleset` confirmed killswitch chains (`PSW2_MANGLE`,
+  `PSW2_NAT`, `PSW2_DNS`) still fully loaded, TPROXY/REDIRECT still
+  pointed at ports 1041/11400 with nothing listening — fail-closed as
+  designed, total blackhole (`curl` to the local SOCKS port returned
+  `HTTP:000` instantly; `nslookup` against the router's own resolver
+  timed out — DNS is redirected through the same dead Xray, so this
+  incident blacked out DNS too, not just proxied HTTP/TCP).
+- LuCI reportedly still showed passwall2 as "running" with nodes
+  "alive" during this window — confirms that surface-level PW2 GUI
+  status reflects config/cached balancer state, not a live probe of
+  the actual Xray process, and should not be trusted alone when
+  diagnosing a total outage.
+
+**This settles the previously-open `monitor.sh` reliability question
+(§0.2 in SPEC_v0.6.0.md, "empirically contested"): confirmed unreliable.**
+A real incident produced stronger evidence than the planned kill-test
+would have (9+ hours of non-recovery vs. a single controlled kill). No
+further test is required before deciding.
+
+**Decision (user, 2026-07-22 ~12:13 MSK): greenlit — build an external
+Xray-death watchdog.** Default action on detected death: restart
+(`/etc/init.d/passwall2 restart` or a more targeted restart of just the
+Xray process, to be determined during design — the full restart's brief
+nft teardown/reapply leak window per SPEC §4.1 is an accepted
+trade-off vs. hours of total blackout). This sits as `xray_dead_action`
+in the presets addon's draft UCI schema (`SPEC_v0.6.0.md` §3) —
+remains an opt-in toggle per project convention (not a silent default),
+but the toggle now defaults to enabled once the watchdog exists,
+since four independent incidents (2026-07-18 ×2, 2026-07-19, 2026-07-22)
+across two different trigger types (log-bloat OOM, connection-volume
+OOM) is no longer a single fixable bug — it is a structural property of
+running Xray on ~244MB RAM hardware. Design/implementation not yet
+started as of this entry.
 
 ## P3 — 2026-07-18 Promote balancer stickiness setting to production: `expected='1'`
 

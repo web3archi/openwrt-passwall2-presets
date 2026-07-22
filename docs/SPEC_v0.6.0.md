@@ -2,8 +2,9 @@
 
 Status: draft for discussion. Coding has not started — architecture is
 fixed first.
-Date: 2026-07-17. Updated: 2026-07-21 (folds in P3/P5/P6 backlog
-findings and the full incident diagnostic history through 2026-07-20).
+Date: 2026-07-17. Updated: 2026-07-22 (4th OOM incident resolves the
+`monitor.sh` reliability question; Xray-death watchdog build is now
+greenlit — see §0.2 and BACKLOG.md P2).
 
 ## 0. Research summary (basis for this spec)
 
@@ -48,9 +49,9 @@ and issue [#796 "Kill Switch"](https://github.com/xiaorouji/openwrt-passwall2/is
   `nohup` (no `procd respawn`). Only active if
   `passwall2.@global[0].enabled=1` **and** `passwall2.@global_delay[0].start_daemon=1`.
   `pgrep` only detects "process is gone," not "process is alive but hung (deadlocked)."
-  **This claim is empirically contested — see the "monitor.sh reliability" note in
-  §0.2 below. Do not rely on it holding until independently re-verified against the
-  live `monitor.sh` source and a controlled kill test.**
+  **This claim does not hold in practice — see the "monitor.sh reliability" note in
+  §0.2 below (RESOLVED 2026-07-22: confirmed unreliable, watchdog greenlit). Do not
+  treat `pgrep`-based auto-respawn as trustworthy on this router.**
 
 **Conclusion:** PW2's native behavior needs no additional killswitch for the "Xray died
 while running" scenario — it's already fail-closed there. What might be worth building
@@ -127,29 +128,30 @@ the exit IP of that alternate, non-router path, not a router-side killswitch fai
 the user does not necessarily mean a PW2 shunt/killswitch action was taken — confirm the
 actual mechanism before assuming router-side state changed.
 
-**`monitor.sh` reliability — open, unresolved contradiction.** Incidents #1 and #2 each
-required *manual* restart after multi-hour outages (9h and — until checked — an unknown
-window) despite `passwall2.@global[0].enabled=1` and
-`passwall2.@global_delay[0].start_daemon=1` both being confirmed `1` at the time (i.e.
-per the source, `monitor.sh`'s `pgrep`-based respawn should have been active and should
-have caught a `pgrep`-visible dead process within ~58–64s). Yet on 2026-07-20, a routine
-diagnostic check found Xray alive again under a *new* pid (`8472`) despite
-incident #3's OOM the previous evening, **and** `passwall2.log` showing no restart entry
-at all since 16:51:35 on 2026-07-19 (i.e. *before* incident #3 even happened) — meaning
-something restarted Xray without going through the logged `stop()`/`start()` cycle.
-`monitor.sh` is the leading candidate for that silent restart, but this is not confirmed
-— it needs a direct read of the live `monitor.sh` source on this specific router version
-plus a controlled "kill Xray, time the respawn" test before being relied upon as a
-mitigation. **Do not assume it is reliable until this is verified.**
+**`monitor.sh` reliability — RESOLVED 2026-07-22: confirmed unreliable.** Incidents #1
+and #2 each required *manual* restart after multi-hour outages despite
+`passwall2.@global[0].enabled=1` and `passwall2.@global_delay[0].start_daemon=1` both
+confirmed `1` (per source, `monitor.sh`'s `pgrep`-based respawn should catch a dead
+process within ~58–64s). Incident #3 appeared to self-heal (Xray alive under a new pid
+on next check, `passwall2.log` showing no matching restart entry) — later explained as a
+silent `monitor.sh` respawn (no `stop()`/`start()` log line, since that log is written by
+`app.sh`, not `monitor.sh`).
 
-**Net effect on the watchdog decision:** the same failure mode has now recurred under
-two distinct triggers (log bloat, connection volume under load). This raises the
-priority of a possible external Xray-death watchdog (auto-detect + auto-restart) from
-"nice to have" to "addressing a recurring structural fragility on ~244MB RAM hardware" —
-but whether to actually build one, and whether it should coexist with or replace
-`monitor.sh`, is **still an open decision pending with the user, not yet greenlit.** Per
-standing instruction: diagnose fully before shipping any fix, and do not rush a new
-version without a decision.
+**Incident #4 (2026-07-22 ~03:01 MSK) settled it**: `monitor.sh` was confirmed alive
+(`pid 8476`) throughout, yet did not restart the OOM-killed Xray for **9h5m** before the
+next diagnostic check (vs. the ~58–64s the source implies). Full detail in
+`docs/BACKLOG.md` P2, "Fourth occurrence." **Conclusion: `monitor.sh` is not a reliable
+auto-recovery mechanism — it sometimes works (incident #3) and sometimes does not for
+hours (incidents #1, #2, #4).** No further kill-test is required; a real 9h+ failure is
+stronger evidence than a single controlled test would have provided.
+
+**Decision (user, 2026-07-22 ~12:13 MSK): GREENLIT — build an external Xray-death
+watchdog.** No longer an open question. Default action: restart Xray on detected death
+(exact restart mechanism — full `passwall2 restart` vs. a narrower restart of just the
+Xray process — to be settled during design, see `xray_dead_action` in §3). This does not
+replace `monitor.sh` (leave it running as-is); the new watchdog is an independent,
+coarser-grained safety net on top of it. Design/implementation not started as of this
+revision — tracked as the next roadmap item (§5).
 
 ### 0.3 Native PW2 failure/fallback options (survey, not yet each individually vetted)
 
@@ -458,17 +460,19 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
   OpenWrt/LuCI — no invented UI patterns. Every action goes through the standard OpenWrt
   **Save / Save & Apply / Cancel** buttons; no custom app-level save flow.
 
-## 5. Implementation order (roadmap) — status as of 2026-07-21
+## 5. Implementation order (roadmap) — status as of 2026-07-22
 
-1. ~~Close §0.2 (on-router diagnostics) — don't code blind.~~ **Done** — three OOM
+1. ~~Close §0.2 (on-router diagnostics) — don't code blind.~~ **Done** — four OOM
    incidents fully diagnosed, root causes confirmed for #1/#2 and fixed, #3's trigger
-   identified (connection-volume RSS spike), `monitor.sh` reliability flagged as an open,
-   unresolved contradiction (see §0.2) rather than assumed.
+   identified (connection-volume RSS spike), `monitor.sh` reliability question **resolved**
+   by incident #4 (confirmed unreliable, see §0.2).
 2. ~~Apply `expected='1'` to production.~~ **Done**, 2026-07-19 ~13:43 MSK.
-3. Decide the Xray-death watchdog question (§0.2/§2 Wave 3) — **still pending, not
-   greenlit.** Blocks: whether Preset A's `xray_dead_action` toggle in §3 is even
-   reachable, and whether a new daemon is needed at all or `monitor.sh` just needs to be
-   trusted/tuned.
+3. ~~Decide the Xray-death watchdog question (§0.2/§2 Wave 3).~~ **Done** — **GREENLIT
+   2026-07-22.** Build an external Xray-death watchdog; default action `restart`; does not
+   replace `monitor.sh`, sits on top of it. Design/implementation is the new next step
+   (item 3a below).
+3a. Design + implement the Xray-death watchdog (detection loop, restart action, logging,
+    opt-in `xray_dead_action` toggle wiring per §3). **Not started.**
 4. Observer prototype (no UI) — reuse/adapt the existing `wan_monitor.sh` approach, add
    current-node detection via SOCKS-port discovery. **Not started.**
 5. Preset A (auto-selection engine) — UCI generator for Xray Balancing / sing-box
