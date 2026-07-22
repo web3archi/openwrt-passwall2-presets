@@ -1,0 +1,43 @@
+{#
+ Standalone chrome-less duplicate of the Overview tab (passwall2-presets/overview),
+ for embedding in a kiosk display / dashboard tab — not the native Status > Overview
+ widget slot (that one was removed per user feedback; this is a separate full page).
+
+ Uses the theme's own native "blank_page" flag (see luci-theme-bootstrap's
+ header.ut/footer.ut — the same mechanism sysauth.ut and luci-app-commands'
+ commands_public.ut use) to drop the top navbar/sidebar/footer chrome. Everything
+ else — CSS, JS bootstrap, the actual view — is the stock LuCI client pipeline; this
+ is not a custom rendering path.
+-#}
+{% include('header', { blank_page: true }) %}
+
+<div id="view">
+	<div class="spinning">{{ _('Loading view…') }}</div>
+</div>
+
+<script type="text/javascript">
+	L.require('ui').then(function(ui) {
+		ui.instantiateView('passwall2-presets/overview');
+	});
+
+	// Best-effort auto-size when this page was opened via window.open() as a
+	// dedicated popup (e.g. window.open(url, 'pw2p', 'width=1,height=1,resizable=yes')).
+	// Browsers refuse to resize a normal tab/window from script for security
+	// reasons, so this silently does nothing there — see the deploy notes for how
+	// to actually get a chrome-less, auto-sized window (browser "app mode" /
+	// "add to home screen", not something a page can force on its own).
+	window.addEventListener('load', function() {
+		setTimeout(function() {
+			try {
+				var view = document.getElementById('view');
+				if (view && window.opener)
+					window.resizeTo(
+						Math.min(document.body.scrollWidth + 24, screen.availWidth),
+						Math.min(document.body.scrollHeight + 24, screen.availHeight)
+					);
+			} catch (e) {}
+		}, 400);
+	});
+</script>
+
+{% include('footer', { blank_page: true }) %}

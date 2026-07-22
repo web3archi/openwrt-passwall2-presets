@@ -476,9 +476,27 @@ below are otherwise final, not tentative.
   as secondary rows — off/blank until the user fills in a host for B/D or sets up the
   direct rule for C.
 - Below the panel: a "recent events" list sourced from the Observer's wan-monitor-style
-  history (probe transitions, watchdog restarts).
-- The same history is also shown in a standalone widget — but the widget renders just
-  the raw list, with none of the page's surrounding info-panel/browser chrome.
+  history (probe transitions, watchdog restarts) — **revised 2026-07-22: hidden by
+  default, shown only while a checkbox is checked** (the underlying data still
+  refreshes in the background either way, so it's current the moment it's revealed).
+- **Revised 2026-07-22, superseding the paragraph below:** the native Status >
+  Overview widget slot was tried and explicitly rejected by the user ("не надо туда
+  его" — wrong place for it). In its place, a **separate standalone page**
+  (`admin/services/passwall2-presets/widget`, hidden from the menu tree, no browser
+  chrome via the theme's own `blank_page` flag) instantiates the *exact same*
+  Overview view — full status panel, not just the log — for kiosk/dashboard
+  embedding. See roadmap item 6 in §5 for file paths.
+- ~~The same history is also shown in a standalone widget — but the widget renders
+  just the raw list, with none of the page's surrounding info-panel/browser
+  chrome.~~ (superseded above — that was the native Status-widget approach, removed).
+- **Badge colors, finalized 2026-07-22** (native luci-theme-bootstrap classes/vars
+  only, no invented colors): green = `.label.success` (working/reachable), yellow =
+  `.label.warning` (restarting/starting/waiting/degraded — any transitional state),
+  grey = bare `.label` (undetermined/disabled/not configured), red = `.label` with
+  an inline style reusing the theme's own `--error-color-high`/`--on-error-color`
+  CSS variables (the bootstrap theme has no native `.label.danger` modifier — only
+  `.btn`/`.alert-message`/`.cbi-tooltip` get a danger/error variant — so this reuses
+  the same design tokens rather than inventing a new red).
 
 ### Nodes tab
 Per-node statistics table, sortable by every column (click column header — pure UI sort
@@ -606,19 +624,31 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
    URLTest, `expected='1'`/`leastLoad` as the "Most stable" default, plus the
    `fallback_direct_enabled` opt-in toggle and its issue #439 DNS-caveat UI copy.
    **Not started.**
-6. LuCI Overview + Widget, backed by Observer data. **Done, 2026-07-22.** Read-only
-   Overview page at `admin/services/passwall2-presets/overview`
+6. LuCI Overview + standalone widget page, backed by Observer data. **Done,
+   2026-07-22; revised 2026-07-22 per user feedback (native Status widget rejected,
+   badges restyled, events gated, poll interval made explicit).** Read-only Overview
+   page at `admin/services/passwall2-presets/overview`
    (`files/www/luci-static/resources/view/passwall2-presets/overview.js`) rendering
    the full status JSON (watchdog badge, Xray alive, active balancer, node counts,
-   Probes A-D) plus a tailed recent-events log view, auto-polling via `poll.add`.
-   Companion native Status > Overview widget
+   Probes A-D) plus a tailed recent-events log view (hidden behind a checkbox by
+   default), auto-polling every 5s via `poll.add(fn, 5)`. Badges use only native
+   luci-theme-bootstrap classes/CSS variables (`.label.success`/`.label.warning`/
+   bare `.label`, plus `--error-color-high`/`--on-error-color` for the red state the
+   theme doesn't have a `.label` modifier for) — see §4 for the exact mapping.
+   **The native Status > Overview widget slot
    (`files/www/luci-static/resources/view/status/include/60_passwall2-presets.js`)
-   shows only the raw tailed log per §4's spec, auto-discovered by
-   `luci-mod-status`'s own include mechanism. Menu entry
-   (`files/usr/share/luci/menu.d/luci-app-passwall2-presets.json`) and ACL grant
-   (`files/usr/share/rpcd/acl.d/luci-app-passwall2-presets.json`) for the status/log
-   files ship alongside. Settings tab (editing probes/watchdog config) remains
-   **not started** — router config must still be edited directly via
+   was removed** — the user explicitly didn't want anything living there. In its
+   place: a standalone chrome-less page at `admin/services/passwall2-presets/widget`
+   (hidden from the menu tree, no title) backed by a ucode template
+   (`files/usr/share/ucode/luci/template/passwall2-presets/widget.ut`) that uses the
+   theme's own native `blank_page` flag (the same mechanism `sysauth.ut` and
+   `luci-app-commands`'s `commands_public.ut` use) to drop the navbar/sidebar/footer,
+   then instantiates the *same* `passwall2-presets/overview` view — one
+   implementation, two entry points, full status panel (not just the log) on both.
+   Menu entries (`files/usr/share/luci/menu.d/luci-app-passwall2-presets.json`) and
+   ACL grant (`files/usr/share/rpcd/acl.d/luci-app-passwall2-presets.json`) for the
+   status/log files ship alongside. Settings tab (editing probes/watchdog config)
+   remains **not started** — router config must still be edited directly via
    `/etc/config/passwall2_presets`.
 7. Preset B (Shunt-based bypass). **Not started.**
 8. Nodes tab — 12-column sortable metrics table per §4, once the time-series data-source

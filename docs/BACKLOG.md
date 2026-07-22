@@ -589,7 +589,15 @@ beforehand, per this project's standing constraint):
   UI-exposed opt-in toggle. Candidate for a future BACKLOG item if it ever
   needs tuning.
 - LuCI Overview/widget to actually display `observer_watchdog.status` — **built,
-  2026-07-22** (SPEC §5 item 6): read-only Overview page plus a native Status >
-  Overview log widget, menu entry, and ACL grant. Settings tab (editing probes/
-  watchdog config from LuCI instead of `/etc/config/passwall2_presets` directly)
-  remains not started.
+  2026-07-22; revised same day per user feedback** (SPEC §5 item 6): read-only
+  Overview page, menu entries, and ACL grant. The first pass's native Status >
+  Overview log widget was **removed** — user explicitly didn't want anything in
+  that slot — and replaced with a standalone chrome-less page
+  (`admin/services/passwall2-presets/widget`, native theme `blank_page` flag, no
+  menu title) that instantiates the same Overview view for kiosk/dashboard
+  embedding. Badge colors finalized to native `.label` classes/CSS vars only
+  (green/yellow/grey native, red reuses `--error-color-high` since the theme has no
+  `.label.danger`). Recent events now hidden by default behind a checkbox; other
+  status fields poll every 5s (`poll.add(fn, 5)`, previously implicit/default).
+  Settings tab (editing probes/watchdog config from LuCI instead of
+  `/etc/config/passwall2_presets` directly) remains not started.

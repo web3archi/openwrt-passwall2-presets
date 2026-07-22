@@ -9,25 +9,50 @@
 // docs/BACKLOG.md P7 for why node counts/probe fields are shaped the way they are
 // (no live Xray API to query, so nodes.currently_working is a documented limitation,
 // not a bug).
+//
+// This same view is also instantiated, unmodified, by the standalone chrome-less
+// widget page at files/usr/share/ucode/luci/template/passwall2-presets/widget.ut —
+// one render() implementation, two entry points (admin tab + standalone page), per
+// the user's "duplicate the Overview tab, don't build a second thing" request.
+//
+// Badge colors follow the native luci-theme-bootstrap palette only (cascade.css):
+//   - green  -> class "label success" (native, --success-color-high)
+//   - yellow -> class "label warning" (native, --warn-color-high)
+//   - grey   -> bare class "label"    (native default, --background-color-low)
+//   - red    -> the bootstrap theme has no ".label.danger" variant (only
+//     .btn/.alert-message/.cbi-tooltip get a "danger"/"error" modifier), so the
+//     danger badge reuses the SAME native error CSS variables
+//     (--error-color-high / --on-error-color) as an inline style on the base
+//     ".label" class, rather than inventing a new color — see SPEC §4.
 
 var STATUS_FILE = '/tmp/passwall2_presets/observer_watchdog.status';
 var LOG_FILE = '/tmp/passwall2_presets/observer_watchdog.log';
 var LOG_TAIL_LINES = 20;
+var POLL_INTERVAL_SECONDS = 5;
 
+// kind: 'ok' (green) | 'warn' (yellow) | 'bad' (red) | 'grey' (undetermined, default)
 var WATCHDOG_STATES = {
-	'ok':                    { text: _('OK'),                       color: '#3c8f3c' },
-	'degraded':              { text: _('Degraded'),                 color: '#c98a10' },
-	'down-in-grace':         { text: _('Down (grace period)'),      color: '#c94a1f' },
-	'restarting':            { text: _('Restarting'),                color: '#c94a1f' },
-	'restarted-confirming':  { text: _('Restarted, confirming'),    color: '#c98a10' },
-	'disabled':              { text: _('Disabled'),                 color: '#888888' }
+	'ok':                    { text: _('OK'),                    kind: 'ok'   },
+	'degraded':              { text: _('Degraded'),               kind: 'warn' },
+	'down-in-grace':         { text: _('Down (grace period)'),    kind: 'warn' },
+	'restarting':            { text: _('Restarting'),             kind: 'warn' },
+	'restarted-confirming':  { text: _('Restarted, confirming'),  kind: 'warn' },
+	'disabled':              { text: _('Disabled'),               kind: 'grey' }
 };
 
-function badge(text, color) {
-	return E('span', {
-		'style': 'display: inline-block; padding: 1px 8px; border-radius: 4px; ' +
-			'color: #fff; background-color: ' + color + '; font-size: 90%; white-space: nowrap;'
-	}, [ text ]);
+function badge(text, kind) {
+	var cls = 'label';
+	var style = null;
+
+	if (kind === 'ok')
+		cls += ' success';
+	else if (kind === 'warn')
+		cls += ' warning';
+	else if (kind === 'bad')
+		style = 'background-color:var(--error-color-high);color:var(--on-error-color);';
+	// kind === 'grey' or unset: bare ".label" already renders neutral/grey natively.
+
+	return E('span', style ? { 'class': cls, 'style': style } : { 'class': cls }, [ text ]);
 }
 
 function fmtAgo(unixtime) {
@@ -65,27 +90,27 @@ function renderPanel(raw) {
 	}
 
 	var wd = WATCHDOG_STATES[status.watchdog_status] ||
-		{ text: status.watchdog_status || _('unknown'), color: '#888888' };
+		{ text: status.watchdog_status || _('unknown'), kind: 'grey' };
 	var pa = status.probe_a || {};
 	var pc = status.probe_c || {};
 	var nodes = status.nodes || {};
 
 	var table = E('table', { 'class': 'table' }, [
-		row(_('Watchdog status'), badge(wd.text, wd.color)),
+		row(_('Watchdog status'), badge(wd.text, wd.kind)),
 		row(_('Last updated'), fmtAgo(status.updated_at)),
 		row(_('Xray process'), status.xray_alive == 1
-			? badge(_('running'), '#3c8f3c')
-			: badge(_('not running'), '#c94a1f')),
+			? badge(_('running'), 'ok')
+			: badge(_('not running'), 'bad')),
 		row(_('Active balancer'), nodes.active_balancer || E('em', {}, [ _('not found') ])),
 		row(_('Configured nodes'), nodes.total_configured || '0'),
 		row(_('Currently working'), nodes.currently_working == 'unavailable_no_xray_api'
 			? E('em', {}, [ _('unavailable — PassWall2 does not expose an Xray API to query this live') ])
 			: (nodes.currently_working || '-')),
 		row(_('Probe A — exit IP via proxy'), pa.enabled == 1
-			? (pa.ok == 1 ? badge(pa.ip || '?', '#3c8f3c') : badge(_('unreachable'), '#c94a1f'))
+			? (pa.ok == 1 ? badge(pa.ip || '?', 'ok') : badge(_('unreachable'), 'bad'))
 			: E('em', {}, [ _('disabled') ])),
 		row(_('Probe C — exit IP via direct path'), pc.enabled == 1
-			? (pc.ip ? badge(pc.ip, '#3c8f3c') : badge(_('unreachable'), '#c94a1f'))
+			? (pc.ip ? badge(pc.ip, 'ok') : badge(_('unreachable'), 'bad'))
 			: E('em', {}, [ _('disabled') ]))
 	]);
 
@@ -103,8 +128,8 @@ function renderPanel(raw) {
 
 		items.forEach(function(item) {
 			var val = (item.status == 'reachable')
-				? badge((item.host || '?') + ' (' + item.latency_ms + ' ms)', '#3c8f3c')
-				: badge((item.host || '?') + ' — ' + _('unreachable'), '#c94a1f');
+				? badge((item.host || '?') + ' (' + item.latency_ms + ' ms)', 'ok')
+				: badge((item.host || '?') + ' — ' + _('unreachable'), 'bad');
 			table.appendChild(row(label, val));
 			label = '';
 		});
@@ -154,6 +179,20 @@ return view.extend({
 		this.panelNode = E('div', {}, [ renderPanel(data[0]) ]);
 		this.eventsNode = E('div', {}, [ renderEvents(data[1]) ]);
 
+		// Recent events: hidden by default, shown only while the checkbox is
+		// checked (per user request) — the checkbox only toggles the wrapper's
+		// display; the underlying poll_status() keeps refreshing the content
+		// underneath regardless, so it's already current the moment it's shown.
+		var eventsToggle = E('input', {
+			'type': 'checkbox',
+			'id': 'pw2p-events-toggle',
+			'change': L.bind(function(ev) {
+				this.eventsWrap.style.display = ev.target.checked ? '' : 'none';
+			}, this)
+		});
+
+		this.eventsWrap = E('div', { 'style': 'display:none' }, [ this.eventsNode ]);
+
 		var container = E([
 			E('h2', {}, [ _('PassWall2 Presets — Overview') ]),
 			E('p', { 'class': 'cbi-value-description' }, [
@@ -168,11 +207,17 @@ return view.extend({
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, [ _('Recent events') ]),
-				this.eventsNode
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title', 'for': 'pw2p-events-toggle' }, [
+						_('Show recent events')
+					]),
+					E('div', { 'class': 'cbi-value-field' }, [ eventsToggle ])
+				]),
+				this.eventsWrap
 			])
 		]);
 
-		poll.add(L.bind(this.poll_status, this));
+		poll.add(L.bind(this.poll_status, this), POLL_INTERVAL_SECONDS);
 
 		return container;
 	},

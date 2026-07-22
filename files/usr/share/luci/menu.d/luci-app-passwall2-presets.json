@@ -20,5 +20,15 @@
 		"depends": {
 			"acl": [ "luci-app-passwall2-presets" ]
 		}
+	},
+	"admin/services/passwall2-presets/widget": {
+		"order": 2,
+		"action": {
+			"type": "template",
+			"path": "passwall2-presets/widget"
+		},
+		"depends": {
+			"acl": [ "luci-app-passwall2-presets" ]
+		}
 	}
 }
