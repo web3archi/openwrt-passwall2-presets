@@ -4,7 +4,9 @@ Status: draft for discussion. Coding has not started — architecture is
 fixed first.
 Date: 2026-07-17. Updated: 2026-07-22 (4th OOM incident resolves the
 `monitor.sh` reliability question; Xray-death watchdog build is now
-greenlit — see §0.2 and BACKLOG.md P2).
+greenlit and merged into the Observer as Probe A + `pgrep xray` +
+grace period; Probes A/B/C/D and the Overview status panel content are
+now specified — see §0.2, §2, §3, §4, and BACKLOG.md P2).
 
 ## 0. Research summary (basis for this spec)
 
@@ -331,14 +333,17 @@ Balancing and SOCKS Auto Switch as separate optional presets, hidden behind an e
   tunnel isn't enough and several parallel SOCKS exits with different policies are
   needed.
 
-**Xray-death watchdog (formerly "Killswitch v2 / boot-and-restart guard")** — blocked on
-the still-open decision in §0.2. Two separate open questions must be resolved first:
-(1) is `monitor.sh` actually reliable for this on the live router (unconfirmed,
-contradicted by incidents #1/#2's multi-hour outages), and (2) if it isn't, or the user
-wants a different failure action (allow-direct vs. restart-and-wait), does our own
-external watchdog duplicate or replace it. Not started. If built, per the failure-mode
-survey in §0.3 item 2, its action on detected death (restart vs. temporarily relax the
-killswitch) must itself be an explicit opt-in toggle, not a silent choice.
+**Xray-death watchdog — GREENLIT 2026-07-22, merged into the Observer (no longer a
+separate Wave 3 item).** Both open questions from §0.2 are resolved: `monitor.sh` is
+confirmed unreliable (incidents #1, #2, #4 — hours-long outages with no auto-recovery);
+decision is to build our own watchdog as an independent layer on top of `monitor.sh`
+(not a replacement). It is not a standalone daemon — it is the same probe loop as
+Probe A (§2 Observer, "IP via proxy / leak monitor") below: when Probe A fails **and**
+`pgrep -f xray` finds no process, after a configurable grace period (`grace_period`,
+default 30s, UI range 0–180s, to give `monitor.sh` a chance first) it runs
+`/etc/init.d/passwall2 restart`. Action is an explicit opt-in toggle
+(`observer.main.xray_dead_action`, §3) per §0.3 item 2, defaulting to `restart` given the
+confirmed unreliability. Design done, script drafted, not yet deployed to the router.
 
 ## 3. Addon UCI schema (draft, for discussion — updated for §0.3/§2 opt-in toggles)
 
@@ -351,9 +356,36 @@ config global 'main'
 
 config observer 'main'
     option enabled '1'
-    option interval '30'           # seconds; lightweight probe, not 58s like monitor.sh — a separate process
-    option probe_url 'https://api.ipify.org'
-    option socks_port ''           # discovered from passwall2.@global[0].node_socks_port, not hardcoded
+    option interval '30'                # seconds; lightweight probe, not 58s like monitor.sh — separate process
+    option socks_port ''                # discovered from passwall2.@global[0].node_socks_port, not hardcoded
+    option watchdog_enabled '1'         # opt-in, but defaults ON: monitor.sh confirmed unreliable (BACKLOG P2, 4 incidents)
+    option grace_period '30'            # seconds; UI range 0-180 (0-3min) — waits for monitor.sh before acting
+    option xray_dead_action 'restart'   # restart|none — moved here from `preset best_node` since detection
+                                         # (Probe A) and action now live together in the Observer
+
+config probe 'ip_via_proxy'             # Probe A — leak monitor; ALSO the watchdog's death signal (with pgrep xray)
+    option enabled '1'
+    list ip_check_url 'https://ifconfig.me/ip'
+    list ip_check_url 'https://2ip.io'
+    list ip_check_url 'https://api.ipify.org'   # tried in order; guards against one checker being down
+    # Overview/widget display: IP (the exit IP returned through the proxy)
+
+config probe 'blocked_via_proxy'        # Probe B — confirms a genuinely-blocked destination actually tunnels
+    option enabled '0'                  # off until the user fills in a host — no hardcoded regional default
+    list host ''                        # UI placeholder: "e.g. x.com — a host known blocked in YOUR region"
+    # Overview/widget display: status (reachable/unreachable + latency) per host
+
+config probe 'ip_direct'                # Probe C — confirms the direct/shunt path is actually direct
+    option enabled '0'                  # off until the user has set up the direct-rule (needs a how-to doc,
+                                         # incl. how to add an IP-checker host into that direct rule)
+    list ip_check_url 'https://ifconfig.me/ip'
+    list ip_check_url 'https://2ip.io'
+    # Overview/widget display: IP (the real ISP IP, via the direct/shunt path)
+
+config probe 'unblocked_direct'         # Probe D — baseline WAN sanity check via the direct path (no proxy)
+    option enabled '0'
+    list host ''                        # UI placeholder: "e.g. ya.ru — a host NOT blocked in your region"
+    # Overview/widget display: status (reachable/unreachable) — distinguishes "proxy down" from "WAN down"
 
 config preset 'bypass'
     option enabled '0'
@@ -368,8 +400,8 @@ config preset 'fixed_ip'
 config preset 'best_node'
     option fallback_direct_enabled '0'  # §0.3 item 1 — opt-in, off by default; surfaces the
                                          # issue #439 DNS caveat in the UI before enabling
-    option xray_dead_action 'restart'   # restart|allow_direct — §0.3 item 2; only meaningful
-                                         # once/if a watchdog exists (§2 Wave 3) — decision pending
+    # xray_dead_action moved to `config observer 'main'` above (§0.2/§2) — detection (Probe A)
+    # and the restart action now live together in the Observer, not the balancer preset.
 
 config preset 'emergency_direct'
     option enabled '0'             # §2 Preset D — manual one-click shunt default_node='_direct'
@@ -385,8 +417,29 @@ config preset 'always_direct_devices'
 not built, not finalized. Supersedes the original Overview/Nodes/Help/Widget draft.**
 
 ### Overview page
-- Top: an info/status panel (exact metrics still TBD).
-- Below it: a "recent events" list sourced from the Observer's wan-monitor-style history.
+**Status panel content, decided 2026-07-22 (was "exact metrics still TBD"):**
+- **Node count:** total configured nodes vs. currently-working nodes. Native source is
+  Xray's own **Observatory/BurstObservatory** feature (confirmed in
+  [`util_xray.lua`](https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall2/main/luci-app-passwall2/luasrc/passwall2/util_xray.lua):
+  `subjectSelector = {"blc-"}`, `probeInterval`) — this is what PW2's own balancer
+  already uses, not something we duplicate. **Open item:** whether Xray's API inbound is
+  enabled on this router (needed to query Observatory live) is unconfirmed as of
+  2026-07-22 — `uci show passwall2 | grep -i api` only surfaced unrelated
+  `tls_serverName` matches, since the API inbound (if present) is generated into the
+  runtime Xray JSON config, not stored in UCI. Pending: grep the generated config
+  (`/tmp/etc/passwall2/*.json` or `/var/etc/passwall2/*.json`) for `"api"`. Fallback if
+  no API inbound exists: total from `passwall2.@nodes[*]` vs. count in the active
+  balancer's `valid_nodes` selector — cruder, but discovery-based, no hardcoding.
+- **Probe A (leak monitor):** current exit IP through the proxy, plus healthy/unhealthy
+  state — the one indicator meant primarily for the end user, not just for diagnostics.
+- **Watchdog status:** ok / degraded (probe failed but Xray alive — not our failure mode)
+  / down-in-grace-period / restarting / restarted-confirming, per the Probe A + `pgrep
+  xray` state machine described in §2.
+- **Probes B/C/D:** status (B, D) and IP (C) for the resources the user configured, shown
+  as secondary rows — off/blank until the user fills in a host for B/D or sets up the
+  direct rule for C.
+- Below the panel: a "recent events" list sourced from the Observer's wan-monitor-style
+  history (probe transitions, watchdog restarts).
 - The same history is also shown in a standalone widget — but the widget renders just
   the raw list, with none of the page's surrounding info-panel/browser chrome.
 

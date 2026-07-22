@@ -456,3 +456,59 @@ selection, and per-domain routing to a specific node — both proposed
 to be exposed through the same "pick from PW2's own node list, no
 free text" pattern, keeping the Wave 1 principle of native PW2
 features only, no custom logic invented outside it.
+
+## P7 — 2026-07-22 Observer/watchdog design: 4 probes (A/B/C/D) + Overview status panel
+
+**Status: design decided, not yet built.** Confirmed with the user (2026-07-22
+~14:27 MSK) that the Xray-death watchdog (P2/§0.2 decision) is not a separate
+component — it's the same Observer probe loop, extended. Four distinct probes,
+confirmed mapping:
+
+- **Probe A — IP via proxy (leak monitor):** `curl` through the local SOCKS port to
+  an IP-echo service (default list, tried in order: `ifconfig.me/ip`, `2ip.io`,
+  `api.ipify.org`). Displays **IP** (the exit address). This is the one indicator
+  meant primarily for the end user, not just diagnostics — and doubles as the
+  watchdog's death signal: if this fails **and** `pgrep -f xray` finds no process,
+  after a grace period (default 30s, opt-in toggle, UI range 0–180s to let
+  `monitor.sh` try first), restart passwall2.
+- **Probe B — blocked resource via proxy:** ping + curl-ping to 1-2 user-entered
+  hosts known to be blocked in *their* region (e.g. `x.com` for RU — deliberately
+  **no hardcoded default**, since this project also targets Iran, North Korea,
+  etc. with different block lists; UI ships only a placeholder/example).
+  Confirms genuinely-blocked traffic actually tunnels. Displays **status**
+  (reachable/unreachable + latency).
+- **Probe C — IP via direct/shunt path:** same IP-echo service list as Probe A, but
+  routed through PW2's direct/shunt path instead of the proxy. Displays **IP** (the
+  real ISP address) — confirms the direct-routing rule is actually direct. Requires
+  the user to have added the IP-checker host to their direct rule; since we don't
+  auto-modify PW2's routing config, this needs a how-to doc (how to enable the
+  shunt, add direct rules, add a verification host that returns an IP into that
+  rule) rather than us configuring it silently.
+- **Probe D — unblocked resource via direct path:** ping + curl-ping to 1-2
+  user-entered hosts known *not* to be blocked in their region (e.g. `ya.ru` for
+  RU — again no hardcoded default). Displays **status**. Baseline WAN sanity check,
+  distinguishing "proxy is down" from "the whole WAN is down" — exactly the
+  distinction we made by hand during today's live incident diagnosis (curl via
+  SOCKS vs. `nslookup` against the router's own resolver).
+
+**Overview/widget node count:** "total nodes / working nodes" should read from
+Xray's own **Observatory/BurstObservatory** feature (confirmed in
+[`util_xray.lua`](https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall2/main/luci-app-passwall2/luasrc/passwall2/util_xray.lua) —
+`subjectSelector = {"blc-"}`, `probeInterval`), which is exactly what PW2's balancer
+already uses — not a metric we invent ourselves.
+
+**Open item (blocking node-count implementation):** whether Xray's API inbound is
+enabled on this router, needed to query Observatory live. `uci show passwall2 |
+grep -i api` only found unrelated `tls_serverName` matches — the API inbound (if
+present) is generated into the runtime Xray JSON config, not stored in UCI.
+Next diagnostic step (when back on the router): `grep -rl '"api"'
+/tmp/etc/passwall2/ /var/etc/passwall2/` on the generated config, plus `ps w | grep
+xray` (also tells us whether Xray has come back up since today's OOM #4) and
+`netstat -tlnp | grep xray` / `ss -tlnp | grep xray` for an extra listening port.
+If no API inbound exists, fallback: total from `passwall2.@nodes[*]` vs. count in
+the active balancer's `valid_nodes` selector — cruder, still discovery-based, no
+hardcoding.
+
+UCI schema and Overview page content updated accordingly in `docs/SPEC_v0.6.0.md`
+§2 (watchdog merge), §3 (`config observer 'main'` + four new `config probe`
+sections), §4 (Overview status panel content, previously "TBD").
