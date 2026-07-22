@@ -382,7 +382,14 @@ this repo, consumed by `files/etc/passwall2-presets/observer_watchdog.sh`:
 ```
 config global 'global'
     option preset 'best_node'      # currently active preset (discovery/id, no hardcoded values inside)
-    option strategy 'stable'       # fast|stable|manual — maps to the table in §2
+    # NOTE: the `strategy` field that used to live here (fast|stable|manual, static
+    # default 'stable') was removed 2026-07-22 once Preset A's read/write pass shipped —
+    # confirmed via grep that nothing in the repo read/wrote it, so it was dead/unused.
+    # There is now no stored "current strategy" anywhere in passwall2_presets at all: the
+    # Settings tab's `strategy` field is virtual and derives the live value on every
+    # render straight from `passwall2` state (see settings.js's strategy.cfgvalue()) —
+    # single source of truth, never a UI that can silently disagree with what PW2 is
+    # actually doing.
 
 # NOTE: section names must be unique across the whole file regardless of type — UCI errors
 # with "section of different type overwrites prior section with same name" if two sections
@@ -437,6 +444,11 @@ config preset 'best_node'
                                          # issue #439 DNS caveat in the UI before enabling
     # xray_dead_action moved to `config observer 'main'` above (§0.2/§2) — detection (Probe A)
     # and the restart action now live together in the Observer, not the balancer preset.
+    #
+    # This section itself is addon infrastructure, not a discovered user entity, so its
+    # fixed literal name 'best_node' is fine (same exception as `global 'global'` /
+    # `observer 'main'`). Implemented 2026-07-22 as a `form.NamedSection` in settings.js —
+    # see §4 Settings tab and §5 item 5 for what actually reads/writes through it.
 
 config preset 'emergency_direct'
     option enabled '0'             # §2 Preset D — manual one-click shunt default_node='_direct'
@@ -589,12 +601,44 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
   (Fastest / Most stable / Manual with auto-restore — see §2 table) into
   `passwall2.<balancer>.*` when saved, plus the `fallback_direct_enabled` toggle with its
   issue #439 DNS caveat surfaced in the UI before enabling.
+  - **Implemented 2026-07-22 (read+write pass).** `settings.js` gained a
+    `form.NamedSection(m, 'best_node', 'preset', null)` block above Widget: a virtual
+    `strategy` `ListValue` (`''`/`fast`/`stable`/`manual`) whose `cfgvalue()` derives the
+    live value every render from `passwall2.@global[0].tcp_node` (never from a stored
+    field — see the §3 schema note on the removed dead `global.strategy`), whose
+    `validate()` blocks Fastest/Most stable when no writable Xray `_balancing` node is
+    discovered yet (via `uci.sections('passwall2','nodes')`, filtered on
+    `protocol==='_balancing'`, first match — never hardcoded) and blocks Manual when no
+    Main node is picked, and whose `write()` fans out into live `passwall2` state:
+    `balancingStrategy` (leastPing/leastLoad) + `expected`/`tolerance` fill-in-if-unset
+    for Fastest/Most stable, or the Manual-mode infra described below, plus repointing
+    `@global[0].tcp_node`/`udp_node` at whichever target won.
+    - **Known limitation, by design, not a bug:** a sing-box `_urltest` node is
+      *detected* (for `validate()` to explain why Fastest/Most stable are blocked) but
+      not *written* — its confirmed UCI field names differ from Xray's `_balancing` and
+      haven't been verified against this router, so guessing would risk silently
+      corrupting a working sing-box config. Xray `_balancing` is the only balancer kind
+      this pass writes to.
   - **"Manual with auto-restore" clarified:** this is PW2's own **SOCKS Auto Switch**
     feature, a distinct mechanism from Balancing/URLTest — a dedicated SOCKS server
     wrapping a fixed **Main node** + an ordered manual **List of backup nodes** +
     **Restore Switch** (switch back to Main once it's healthy again), then used as a
     Socks-type node pointed at `127.0.0.1:<port>`. Unlike Fastest/Most stable (algorithm
     picks the winner by metric), Manual is an explicit, user-ordered fallback chain.
+    - **Implemented 2026-07-22.** The Main node / Backup nodes (`form.DynamicList`, for
+      order-preservation — a checkbox `MultiValue` has no ordering concept) / Restore
+      Switch fields are all virtual (their own `cfgvalue()` reads live
+      `passwall2.pw2p_manual_socks.*`, their `write()`/`remove()` are no-ops so nothing
+      leaks into `passwall2_presets`) and only `.depends('strategy', 'manual')`-visible.
+      The actual persistence happens once, from `strategy.write()`, via two fixed-name
+      addon-owned infrastructure sections in `passwall2` itself — `pw2p_manual_socks`
+      (a `config socks` section) and `pw2p_manual_node` (a `config nodes` section with
+      `option type 'Socks'`, `option address '127.0.0.1'`, wrapping the socks section's
+      own port). These two names are
+      the same kind of exception already applied to `global 'global'`/`observer 'main'`:
+      the addon's own persistent identity, not a discovered user entity. Switching away
+      from Manual disables (`enabled='0'`) rather than deletes this pair, so a user's
+      Main/backup picks survive a round trip through Fastest/Most stable and back.
 - **Widget configuration — decided 2026-07-22 evening: a dedicated "Widget" collapsible
   section in Settings, built with native OpenWrt/LuCI CBI components only (same
   constraint as everything else on this page — no custom JS-only widgets).** Lists every
@@ -710,7 +754,10 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
 5. Preset A (auto-selection engine) — UCI generator for Xray Balancing / sing-box
    URLTest, `expected='1'`/`leastLoad` as the "Most stable" default, plus the
    `fallback_direct_enabled` opt-in toggle and its issue #439 DNS-caveat UI copy.
-   **Not started.**
+   **Read+write pass done, 2026-07-22** (Xray `_balancing` only — sing-box `_urltest`
+   write support remains a known, explained-in-UI limitation; see §4 Settings tab for
+   the full implementation writeup). Not yet deployed to the router or live-tested at
+   the time of this revision.
 6. LuCI Overview + standalone widget page, backed by Observer data. **Done,
    2026-07-22; revised 2026-07-22 per user feedback (native Status widget rejected,
    badges restyled, events gated, poll interval made explicit).** Read-only Overview

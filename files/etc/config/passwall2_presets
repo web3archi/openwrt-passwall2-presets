@@ -1,7 +1,13 @@
 
 config global 'global'
 	option preset 'best_node'
-	option strategy 'stable'
+	# NOTE: no `option strategy` here (removed) -- the active Preset A strategy
+	# (fast/stable/manual) is now a *virtual* Settings-tab field with no
+	# duplicated storage: settings.js derives "currently active" live from
+	# passwall2's own state (balancingStrategy on the discovered _balancing
+	# node, or the pw2p_manual_socks/pw2p_manual_node pair) every time it
+	# renders, and writes go straight into passwall2 too. Single source of
+	# truth is passwall2 itself, per 2026-07-22 design decision.
 
 config observer 'main'
 	option enabled '1'
@@ -39,6 +45,21 @@ config probe 'ip_direct'
 config probe 'unblocked_direct'
 	option enabled '0'
 	list host ''
+
+# Preset A ("Best node") — addon-owned infrastructure section, fixed literal name
+# 'best_node' (same exception as global 'global' / observer 'main'), not a discovered
+# user entity. settings.js reads/writes live passwall2 state through this section's
+# NamedSection; fallback_direct_enabled is the only field actually persisted here.
+config preset 'best_node'
+	option fallback_direct_enabled '0'  # SPEC §0.3 item 1 / §3 -- opt-in, off by default;
+	                                     # surfaces the issue #439 DNS caveat in the Settings
+	                                     # UI before enabling. When on, settings.js sets the
+	                                     # discovered Xray _balancing node's `fallback_node`
+	                                     # to '_direct' on save; when off, only clears it back
+	                                     # to unset if it's still exactly '_direct' (never
+	                                     # clobbers a fallback_node the user picked by hand on
+	                                     # PassWall2's own native page).
+	# xray_dead_action lives on `config observer 'main'` above, not here -- see §3 note there.
 
 # Widget field visibility — controls which Overview rows also appear on the compact
 # standalone widget page (admin/services/passwall2-presets/widget). The full Overview

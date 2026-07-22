@@ -784,9 +784,8 @@ decide whether it's allowed to try `window.resizeTo()`.
 
 **Not yet done:** per-preset row-level "show in Overview"/"show in widget"
 checkboxes (a *different* mechanism from the Widget field-visibility list above —
-see §4's original bullet), and all of Preset A read/write (strategy display,
-strategy generator, `fallback_direct_enabled` toggle) — still open, per Decision 1
-above.
+see §4's original bullet). Preset A read/write (strategy display, strategy
+generator, `fallback_direct_enabled` toggle) — **done, see P10.**
 
 **Deploy note:** this adds a new UCI section and a new ACL write grant, so on top of
 the usual `scp` of changed/new files, the router-side
@@ -842,3 +841,114 @@ changes, so the earlier `uci -q get ... || { ... }` block and `rpcd restart` are
 not needed again; a plain re-`scp` of those two files plus the usual LuCI cache
 clear (`rm -f /tmp/luci-indexcache* /tmp/luci-modulecache*; /etc/init.d/uhttpd
 restart`) is enough.
+
+## P10 — 2026-07-22 late night: Preset A read/write implemented (closes P8 Decision 1)
+
+**Status:** coded and syntax-checked (`node --check`) in the sandbox; **not yet
+deployed to the router or live-tested** as of this entry — that's the next step.
+
+**What shipped.** `settings.js` gained a `form.NamedSection(m, 'best_node', 'preset',
+null)` block, placed above the existing Widget section, wrapped in the same
+`<details>/<summary>` pattern (generalized into a `wrapInDetails()` helper reused by
+both sections now instead of the widget-only inline code from P8):
+
+- **`strategy`** — virtual `ListValue` (`''`/`fast`/`stable`/`manual`). `cfgvalue()`
+  reads live `passwall2.@global[0].tcp_node` and cross-references it against the
+  discovered balancer or the addon's own manual-socks section to report the
+  *currently active* strategy — there is no stored "current strategy" field anywhere
+  (the dead `global.strategy` field from the original template, confirmed via grep to
+  be read/written nowhere else, was removed as part of this change — see
+  `docs/SPEC_v0.6.0.md` §3). `validate()` blocks Fastest/Most stable with an
+  explanatory message when no Xray `_balancing` node is found yet (none exists — add
+  one on PW2's own Node List page first) or when only a sing-box `_urltest` node is
+  found (detected for messaging purposes, not yet supported for writing — see
+  limitation below); blocks Manual when no Main node is picked. `write()` does the
+  actual fan-out into live `passwall2` state (never into `passwall2_presets`).
+- **Fastest/Most stable write path** — sets `balancingStrategy` to `leastPing`/
+  `leastLoad` on the discovered `_balancing` node; for Fastest, unsets `expected`
+  (round-robin across all healthy candidates); for Most stable, fills in
+  `expected='1'`/`tolerance='10'` **only if currently unset**, so hand-tuning done
+  through PW2's own native page (e.g. the production `wave1_bal.expected='1'` applied
+  2026-07-19) is never silently overwritten by repeated Save & Apply here. Also
+  repoints `@global[0].tcp_node`/`udp_node` at the balancer and disables (not
+  deletes) the addon's manual-socks infra if it happened to be active.
+- **Manual with auto-restore write path** — new `manual_main_node` (virtual
+  `ListValue`, node picker), `manual_backup_nodes` (virtual `form.DynamicList`, chosen
+  over `MultiValue` specifically for order-preservation — PW2's own
+  `autoswitch_backup_node` is an ordered list, and a checkbox `MultiValue` has no
+  ordering concept), `manual_restore_switch` (virtual `Flag`, default on) — all three
+  `.depends('strategy', 'manual')`, all three read live state via their own
+  `cfgvalue()` and are no-ops on `write()`/`remove()` so nothing leaks into
+  `passwall2_presets`. `strategy.write()` reads their live form values via
+  `this.map.lookupOption(name, section_id)[0].formvalue(section_id)` (confirmed
+  correct API usage against LuCI's own `LuCI.form.Map#lookupOption` docs and a
+  real-world OpenWrt-packages diff using the identical pattern) and persists them
+  into two **new, addon-owned, fixed-name** infrastructure sections in `passwall2`:
+  `pw2p_manual_socks` (`config socks`, mirrors PW2's own SOCKS Auto Switch field set
+  from `socks_config.lua` — `enabled`, `node`, `port` computed via the same
+  `(count of existing socks sections)+1+1080` default-port formula PW2 itself uses,
+  `bind_local`, `enable_autoswitch`, `backup_node_add_mode='manual'`,
+  `autoswitch_backup_node`, `autoswitch_restore_switch`) and `pw2p_manual_node`
+  (`config nodes`, `type='Socks'`, `address='127.0.0.1'`, wrapping the socks
+  section's own port) — then repoints `@global[0].tcp_node`/`udp_node` at
+  `pw2p_manual_node`. These two fixed names are the same category of exception
+  already applied to `global 'global'`/`observer 'main'`: the addon's own persistent
+  identity, not a reference to a user-created entity requiring discovery. Switching
+  away from Manual sets `pw2p_manual_socks.enabled='0'` rather than deleting either
+  section, so a user's Main/backup picks survive a round trip through Fastest/Most
+  stable and back.
+- **`fallback_direct_enabled`** — real, persisted `Flag` on `passwall2_presets.
+  best_node` (unchanged mechanism from the original P8/§3 draft), but `strategy.
+  write()` now also reads its live form value (same `lookupOption().formvalue()`
+  pattern) and fans it into the discovered balancer's `fallback_node` on save: ON
+  sets `fallback_node='_direct'` unconditionally (an explicit user action always
+  wins); OFF only clears `fallback_node` if it's still exactly `'_direct'`, so it
+  never clobbers a real node the user picked by hand on PW2's own page. No effect
+  while Manual is selected (SOCKS Auto Switch has no `fallback_node` concept).
+- **Prerequisite fixes made alongside the main change:**
+  - `files/etc/config/passwall2_presets` template gained the `config preset
+    'best_node'` section (previously undocumented in the shipped template even
+    though `global.preset` already pointed at it by name) and lost the dead
+    `option strategy 'stable'` field from `config global 'global'`.
+  - `files/usr/share/rpcd/acl.d/luci-app-passwall2-presets.json` — both `read.uci`
+    and `write.uci` arrays extended from `["passwall2_presets"]` to
+    `["passwall2_presets", "passwall2"]`, since this page now reads/writes live
+    `passwall2` state directly through the standard uci RPC path, not just its own
+    config. Validated via `python3 -m json.tool`.
+
+**Known limitation, by design, not a bug (carried into `docs/SPEC_v0.6.0.md` §4):** a
+sing-box `_urltest` balancer is *detected* (`findBalancerSection()` checks
+`protocol==='_urltest'` as a fallback after `_balancing` comes up empty) purely so
+`validate()` can give an accurate explanation for why Fastest/Most stable are
+blocked — its confirmed UCI field names differ from Xray's `_balancing` and haven't
+been verified against this project's own router, so this pass does not attempt to
+write to it. Only Xray `_balancing` is writable today.
+
+**Verification done in the sandbox (no router access here):** `node --check` on the
+full 400-line `settings.js` — syntax-clean. Cross-checked the `this.map.lookupOption(
+name, section_id)[0].formvalue(section_id)` pattern against LuCI's own published
+`LuCI.form.Map` API docs (`lookupOption(name, section_id, config_name)` → returns
+`[option, section_id]` or `null`) and against a real openwrt-packages commit using
+the exact same call shape inside a `validate()` closure — both confirm the pattern is
+correct and that `this` resolves to the option instance when `write`/`validate` are
+invoked as plain method calls (`option.write(...)`), which is how LuCI's own
+`form.js` calls them. Also confirmed `uci.add(conf, type, name)` (3-arg, named-section
+form) against `LuCI.uci`'s own published API docs. Not verified: actual behavior on
+this router's real `passwall2` state — that requires the deploy step below.
+
+**Next steps (not yet done):**
+1. `git add`/`commit`/push the three changed files
+   (`files/etc/config/passwall2_presets`,
+   `files/usr/share/rpcd/acl.d/luci-app-passwall2-presets.json`,
+   `files/www/luci-static/resources/view/passwall2-presets/settings.js`) to
+   `web3archi/openwrt-passwall2-presets` `master`.
+2. Deploy: `scp` all three files to their router paths, `/etc/init.d/rpcd restart`
+   (required — this round's ACL change won't take effect from `uhttpd restart`
+   alone), then clear the LuCI JS cache (`rm -f /tmp/luci-indexcache*
+   /tmp/luci-modulecache*; /etc/init.d/uhttpd restart`, same pattern as P9).
+3. On-router verification: Settings tab shows a new "Best node (Preset A)" section
+   above Widget; current strategy should read as "Most stable" (production
+   `wave1_bal` is `leastLoad`/`expected='1'` per `docs/SPEC_v0.6.0.md` §6 — worth a
+   `uci show passwall2 | grep wave1_bal` sanity check before/after to be certain);
+   test at least one strategy switch and confirm it doesn't disrupt the live
+   `wave1_bal` balancer or its 27-node pool.

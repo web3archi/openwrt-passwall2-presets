@@ -9,10 +9,10 @@
 			"ubus": {
 				"file": [ "read", "stat" ]
 			},
-			"uci": [ "passwall2_presets" ]
+			"uci": [ "passwall2_presets", "passwall2" ]
 		},
 		"write": {
-			"uci": [ "passwall2_presets" ]
+			"uci": [ "passwall2_presets", "passwall2" ]
 		}
 	}
 }
