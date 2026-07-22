@@ -645,6 +645,15 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
     view using a `form.Map` and leaving `handleSave`/`handleSaveApply`/`handleReset`
     un-overridden (i.e. not set to `null`, as `overview.js` does since it's read-only)
     gets this exact footer for free — confirmed this is how `settings.js` works.
+- **Field descriptions (decided 2026-07-22 night, not yet implemented):** every
+  setting on the Settings tab must carry a short explanatory line, the same way stock
+  OpenWrt/LuCI does it — the grey `<div class="cbi-value-description">` text under a
+  field, set via the CBI option's own `.description` property (e.g.
+  `o.description = _('...')`), not a separate paragraph or tooltip. Applies to every
+  current and future field on the page: the 9 `show_*` Widget flags today, and Preset
+  A / fallback-chain / per-domain-routing controls once those land. Still open — the
+  9 Widget flags shipped 2026-07-22 evening (see BACKLOG P8) don't have descriptions
+  yet.
 
 ## 5. Implementation order (roadmap) — status as of 2026-07-22
 

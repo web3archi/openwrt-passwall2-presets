@@ -283,13 +283,20 @@ return view.extend({
 				'class': 'cbi-button cbi-button-action',
 				'click': function(ev) {
 					ev.preventDefault();
-					// Same window.open() feature string the widget.ut page's own
-					// auto-resize logic expects (it checks window.opener, so this
-					// must NOT pass 'noopener') -- see widget.ut for that side.
+					// Initial popup size -- widget.ut's auto-resize script (see there)
+					// then grows this to fit the actual widget content once it's
+					// loaded. Used to be 'width=1,height=1': several browsers refuse
+					// to honor a 1x1 request and silently fall back to a full-size
+					// window instead, which is the "opened full page height" bug the
+					// user hit. 80x100 are real, honored values and also match the
+					// floors widget.ut now enforces on its own resize -- see there
+					// for why height isn't floored as strictly as width.
+					// Must NOT pass 'noopener' -- widget.ut checks window.opener
+					// before it's allowed to call window.resizeTo() at all.
 					window.open(
 						L.url('admin/services/passwall2-presets/widget'),
 						'pw2p',
-						'width=1,height=1,resizable=yes,scrollbars=yes'
+						'width=80,height=100,resizable=yes,scrollbars=yes'
 					);
 				}
 			}, [ _('Open widget') ]);

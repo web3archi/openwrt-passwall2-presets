@@ -38,8 +38,18 @@
 				var view = document.getElementById('view');
 				if (view && window.opener)
 					window.resizeTo(
-						Math.min(document.body.scrollWidth + 24, screen.availWidth),
-						Math.min(document.body.scrollHeight + 24, screen.availHeight)
+						// Floor of 80px -- per user request, so an unchecked-heavy
+						// Widget config (see Settings) never collapses the popup
+						// narrower than that, even though the checkbox content
+						// itself would fit thinner.
+						Math.min(Math.max(document.body.scrollWidth + 24, 80), screen.availWidth),
+						// Floor of 100px -- same idea for height. This is a floor,
+						// not a fixed size: real widget content (several status
+						// rows) is almost always taller than 100px on its own and
+						// will still grow past it; this only keeps a near-empty
+						// config (most rows unchecked) from shrinking the popup
+						// down to a sliver.
+						Math.min(Math.max(document.body.scrollHeight + 24, 100), screen.availHeight)
 					);
 			} catch (e) {}
 		}, 400);

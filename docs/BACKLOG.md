@@ -794,3 +794,51 @@ the usual `scp` of changed/new files, the router-side
 (or the whole file re-copied) for `settings.js` to have something to read/write, and
 `/etc/init.d/rpcd restart` (not just `uhttpd restart`) so the ACL change takes
 effect.
+
+## P9 — 2026-07-22 night: on-router test confirmed; widget popup sizing fix; field-description backlog item
+
+**On-router test confirmed by user (P8 skeleton).** Settings tab renders, Widget
+list expanded with all 9 checkboxes checked, footer shows Save / Save & Apply /
+Reset. Overview shows the new "Open widget" button opening a separate window.
+Unchecking one flag (Probe D) → Save & Apply → reopening the widget hid that row
+only on the widget page, full Overview tab kept showing it. P8's design is
+confirmed working end-to-end on real hardware.
+
+**Fixed this round — widget popup sizing.** User reported the popup opened very
+narrow (expected, not a problem) but at *full page height* (not expected). Root
+cause: the "Open widget" button's `window.open()` feature string requested
+`width=1,height=1` as the initial size before `widget.ut`'s auto-resize script
+runs — several browsers refuse to honor a 1x1 popup request and silently fall back
+to a full-size window instead, and the later `resizeTo()` call apparently wasn't
+shrinking it back down in the user's browser. Fix:
+- `overview.js`'s `window.open()` now requests `width=80,height=100` as the
+  initial size instead of `width=1,height=1` — real, browser-honored values.
+- `widget.ut`'s auto-resize `resizeTo()` call now floors its computed size at 80px
+  wide / 100px tall (`Math.max(document.body.scrollWidth + 24, 80)` /
+  `Math.max(document.body.scrollHeight + 24, 100)`, each still capped at
+  `screen.availWidth`/`availHeight` as before). Per explicit user request: 80px is
+  a hard minimum width regardless of how few Widget rows are enabled; 100px is a
+  floor, not a fixed height — real widget content (multiple status rows) is
+  almost always taller than 100px and will still grow past it via the same
+  `resizeTo()` call, this only stops a near-empty config (most rows unchecked)
+  from shrinking the popup to a sliver.
+- Verified: extracted the `<script>` block from `widget.ut` and ran `node --check`
+  on it, plus `node --check` on the full `overview.js` — both syntax-clean.
+
+**New backlog item — Settings field descriptions (not yet implemented).** User
+request: every Settings-tab field needs a short one-line explanation underneath
+it, matching how stock OpenWrt/LuCI pages do it (the standard grey
+`cbi-value-description` text, set via each CBI option's own `.description`
+property — not a custom paragraph or tooltip). Applies to the 9 `show_*` Widget
+flags shipped in P8 (none have descriptions yet) and to every future Settings
+field (Preset A controls, fallback-chain, per-domain routing) once those land. See
+`docs/SPEC_v0.6.0.md` §4 "Settings tab" for the corresponding spec entry. Scope
+for next pass: write one short, plain-language description per existing Widget
+flag (e.g. `show_probe_a` → "Show the Probe A latency/status row in the widget"),
+apply the same pattern to every field added afterward.
+
+**Deploy note:** only `overview.js` and `widget.ut` changed this round — no UCI/ACL
+changes, so the earlier `uci -q get ... || { ... }` block and `rpcd restart` are
+not needed again; a plain re-`scp` of those two files plus the usual LuCI cache
+clear (`rm -f /tmp/luci-indexcache* /tmp/luci-modulecache*; /etc/init.d/uhttpd
+restart`) is enough.
