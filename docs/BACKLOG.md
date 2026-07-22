@@ -646,6 +646,25 @@ feedback on the standalone page (screenshot-verified):
     flag + label → "unchanged for Xm". A GeoIP-lookup fallback (decoupled from PW2
     node data entirely) was considered as an alternative but not needed once the
     `address`-matching approach was confirmed against real data.
+  - **KNOWN BUG, confirmed 2026-07-22 from a router screenshot, fix deferred to the
+    next iteration (explicit user instruction — not fixed this round):** the
+    flag+label span visually runs into the "unchanged for Xm" span with no gap,
+    and a round "?" icon appears jammed between them (e.g. `138.124.64.32 🇵🇱
+    Варшаваunchanged for 30s`, and separately `🇫🇮 Финлянди[?]unchanged for 25s`).
+    Root cause, confirmed against the theme's own `cascade.css` (`/tmp/luci-src`,
+    `themes/luci-theme-bootstrap/.../cascade.css`): `.cbi-value-description` is
+    **not** a generic "muted text" class in this theme — it has a
+    `:not(:empty)::before` rule that always renders a round SVG question-mark help
+    icon, absolutely positioned at `left:-1.25em` relative to the span itself, i.e.
+    it deliberately overlaps into whatever precedes it. The "unchanged for Xm" span
+    in `overview.js` reuses this class (borrowed for its muted/faded look, without
+    realizing the icon side effect), so the help icon renders right on top of the
+    junction between the flag+label span and the "unchanged" text, and neither span
+    has an explicit margin large enough to clear it. Fix for next iteration: stop
+    using `cbi-value-description` for this span (use a plain styled `<span>` with
+    `opacity`/color instead, no icon side effect), and add explicit spacing (a
+    literal space or `margin-left`) between the flag+label span and the
+    "unchanged" span so they never touch regardless of icon presence.
 - **"Show recent events" checkbox alignment fixed.** Root cause (confirmed against
   the theme's own `cascade.css`, not guessed): the checkbox row used the
   `.cbi-value`/`.cbi-value-title`/`.cbi-value-field` CBI-form flex convention (a
