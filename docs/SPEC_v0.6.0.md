@@ -487,12 +487,14 @@ below are otherwise final, not tentative.
   balancer. The "Currently working" row is **removed** (documented dead field, no
   Xray API to back it — see below). Probe A's row additionally shows "unchanged for
   Xm" (how long the exit IP has held steady, tracked in `observer_watchdog.sh`'s own
-  state as `probe_a.ip_since`). A country/flag indicator for Probe A was requested
-  but is **not yet implemented** — PW2 only has a freeform `remarks` label per node,
-  no structured country field, and there's no way to know which node is presently
-  serving traffic (same root cause as the "Currently working" removal); see
-  `docs/BACKLOG.md` P7 for the full investigation and the two options pending the
-  user's decision.
+  state as `probe_a.ip_since`). Probe A's row also shows a **flag + country/city
+  label**, sourced by matching the observed exit IP against the active balancer's
+  own node `address` fields and reading that node's PW2 `remarks` text — confirmed
+  working against the user's own 27-node subscription. The flag itself is split out
+  generically via the Unicode `\p{Regional_Indicator}` property escape (matches any
+  flag emoji, not a hardcoded country list); remarks with no flag prefix fall back
+  to plain text. No IP match (e.g. a hostname-based node `address`) → the slot is
+  simply omitted. See `docs/BACKLOG.md` P7 for the full investigation.
 - **Revised 2026-07-22, superseding the paragraph below:** the native Status >
   Overview widget slot was tried and explicitly rejected by the user ("не надо туда
   его" — wrong place for it). In its place, a **separate standalone page**

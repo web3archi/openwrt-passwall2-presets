@@ -81,6 +81,27 @@ function fmtDuration(unixtime) {
 	return Math.floor(mins / 60) + _('h');
 }
 
+// Split a PW2 node's free-form "remarks" label into an optional leading flag emoji
+// plus the rest of the text. This is intentionally generic, not a hardcoded country
+// list: any Unicode flag emoji is exactly two "Regional Indicator Symbol" codepoints
+// (U+1F1E6-U+1F1FF), matched here via the \p{Regional_Indicator} Unicode property
+// escape, so it works for whatever countries happen to be in the user's own node set.
+// Nodes whose remarks have no such prefix (confirmed to occur on this router, e.g. a
+// plain "Финляндия" with no flag) just fall back to showing the raw text with no flag.
+function splitNodeRemarks(remarks) {
+	if (!remarks)
+		return null;
+	var m;
+	try {
+		m = remarks.match(/^(\p{Regional_Indicator}{2})\s*(.*)$/u);
+	} catch (e) {
+		m = null; // older browser without Unicode property escape support
+	}
+	if (m)
+		return { flag: m[1], label: m[2].trim() || null };
+	return { flag: null, label: remarks.trim() || null };
+}
+
 function row(label, value) {
 	return E('tr', { 'class': 'tr' }, [
 		E('td', { 'class': 'td left', 'width': '40%' }, [ label ]),
@@ -109,10 +130,12 @@ function renderPanel(raw) {
 	var pc = status.probe_c || {};
 	var nodes = status.nodes || {};
 
-	// Probe A value: exit-IP badge, plus (pending — see docs/BACKLOG.md P7 "country/flag
-	// per node" item) a country/flag slot to be inserted here once PW2's actual node
-	// field for it is confirmed, then "unchanged for Xm" — how long the exit IP has
-	// held steady, computed by the watchdog script itself (ip_since), not guessed here.
+	// Probe A value: exit-IP badge, then (if the watchdog script matched the observed
+	// exit IP against a node's own `address` field in the active balancer's pool — see
+	// docs/BACKLOG.md P7) that node's flag + label parsed from its PW2 "remarks" field,
+	// then "unchanged for Xm" — how long the exit IP has held steady, computed by the
+	// watchdog script itself (ip_since). No match on either -> that slot is just omitted,
+	// never guessed.
 	var probeAValue;
 	if (pa.enabled != 1) {
 		probeAValue = E('em', {}, [ _('disabled') ]);
@@ -120,8 +143,12 @@ function renderPanel(raw) {
 		probeAValue = badge(_('unreachable'), 'bad');
 	} else {
 		var since = fmtDuration(pa.ip_since);
+		var node = splitNodeRemarks(pa.node_remarks);
 		probeAValue = E('span', {}, [
 			badge(pa.ip || '?', 'ok'),
+			node ? E('span', { 'style': 'margin-left:.5em' }, [
+				(node.flag ? node.flag + ' ' : '') + (node.label || '')
+			]) : '',
 			since ? E('span', { 'class': 'cbi-value-description', 'style': 'margin-left:.5em' }, [
 				_('unchanged for %s').format(since)
 			]) : ''

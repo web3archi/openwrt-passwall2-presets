@@ -251,6 +251,14 @@ fi
 # not how many of those are presently passing Xray's own health check.
 ACTIVE_BALANCER=$(uci show passwall2 2>/dev/null | grep "\.protocol='_balancing'$" | grep -v '^passwall2\.@' | head -1 | cut -d. -f2)
 TOTAL_NODES=""
+# PROBE_A_NODE_REMARKS: best-effort match of Probe A's observed exit IP against the
+# active balancer's own configured node pool (discovered dynamically above -- no
+# section/node names hardcoded). PW2 has no Xray API, so there's no authoritative way
+# to know which node is presently carrying traffic; this only works when a node's own
+# `address` field is the literal IP that Probe A also observes externally (true for
+# most VPS-style nodes, not for nodes whose `address` is a hostname). No match ->
+# stays empty and the UI simply omits the flag/label, it does not guess.
+PROBE_A_NODE_REMARKS=""
 if [ -n "$ACTIVE_BALANCER" ]; then
     # NOTE: don't count via `grep -c .` (counts lines) -- on this router's uci version,
     # `uci -q get` on a list-type option returns all values on ONE line, space-separated,
@@ -259,14 +267,25 @@ if [ -n "$ACTIVE_BALANCER" ]; then
     # via the shell's own word-splitting, so it's correct regardless of uci's line format.
     set -- $(uci_get_list passwall2.${ACTIVE_BALANCER}.balancing_node)
     TOTAL_NODES=$#
+    if [ "$PROBE_A_OK" = "1" ] && [ -n "$PROBE_A_IP" ]; then
+        for cand in "$@"; do
+            [ "$(uci_get passwall2.${cand}.address)" = "$PROBE_A_IP" ] || continue
+            PROBE_A_NODE_REMARKS="$(uci_get passwall2.${cand}.remarks)"
+            break
+        done
+    fi
 fi
+
+# json_escape: minimal JSON string escaping (backslash, double-quote) -- remarks is
+# free-form text from the node config, e.g. flag emoji + a Russian city/country name.
+json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
 # ================= Write status file for the Overview page / widget ===================
 cat > "$STATUS_FILE" <<EOF
 {
   "updated_at": $(now),
   "watchdog_status": "${STATUS}",
-  "probe_a": {"enabled": ${PROBE_A_ENABLED}, "ok": ${PROBE_A_OK}, "ip": "${PROBE_A_IP}", "ip_since": ${IP_CHANGED_AT:-null}},
+  "probe_a": {"enabled": ${PROBE_A_ENABLED}, "ok": ${PROBE_A_OK}, "ip": "${PROBE_A_IP}", "ip_since": ${IP_CHANGED_AT:-null}, "node_remarks": "$(json_escape "$PROBE_A_NODE_REMARKS")"},
   "probe_b": ${PROBE_B_JSON},
   "probe_c": {"enabled": ${PROBE_C_ENABLED}, "ip": "${PROBE_C_IP}"},
   "probe_d": ${PROBE_D_JSON},

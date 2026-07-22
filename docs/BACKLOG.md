@@ -616,39 +616,36 @@ feedback on the standalone page (screenshot-verified):
   ever successful probe (no earlier ground truth exists, so "since observation
   began" is the honest baseline) and reset whenever the IP actually changes; left
   untouched while the probe is failing.
-- **Country/flag next to Probe A's IP — investigated, NOT implemented yet, needs a
-  decision.** User asked for a flag+country sourced from PW2's own per-node field.
-  Findings from PW2's own source/community scripts (not the router — no live
-  access):
-  - PW2 nodes have a `remarks` UCI option (confirmed via the package's own `.po`
-    string "Node Remarks"/"节点备注", and multiple community scripts reading/writing
-    `passwall2.<node>.remarks` directly, e.g.
-    [`passwalls.sh`](https://raw.githubusercontent.com/amirhosseinchoghaei/Passwall/main/passwalls.sh)). This is a **freeform label**, not a structured
-    country/flag field — PW2's own node-list UI just prints it as text, no flag icon
-    anywhere in the codebase.
-  - A community auto-switch script
-    ([`passwall-auto-switch.sh`](https://gist.github.com/fakhamatia/d84bdddc39f555bef30574185a19bc53))
-    extracts a country hint from `remarks` with its own regex
-    (`grep -oE '[A-Z]{2,3}\['`), i.e. expecting subscription remarks formatted like
-    `SomeLabel[US]` — but that's *that provider's* naming convention, not a PW2
-    standard; other subscriptions use flag emoji, full country names, or nothing at
-    all in remarks. **Cannot hardcode a parser for a format PW2 itself doesn't
-    define or enforce** (project policy).
-  - Deeper problem: even with a working remarks parser, there's still no way to
-    know *which* node in the active balancer's pool is the one actually carrying
-    Probe A's traffic right now — that's the exact same "no Xray API" gap that
-    killed the "Currently working" row above. Matching Probe A's observed exit IP
-    back to a specific node's `remarks` would require matching against that node's
-    `address` field, which only works when a node's address is a literal IP (many
-    subscriptions use a hostname instead).
-  - Two real options going forward, needing the user's call (not guessed): (a)
-    inspect the user's *actual* remarks text on their own 27 nodes (diagnostic
-    command handed off alongside this update) to see whether their subscription's
-    convention happens to be parseable, matched by IP-literal `address` when
-    possible; or (b) do a live GeoIP lookup directly on Probe A's observed exit IP
-    (decoupled from PW2's node data entirely, always works regardless of remarks
-    format, but adds an external dependency/outbound call the user may not want).
-  Not shipped this round pending that answer.
+- **Country/flag next to Probe A's IP — implemented 2026-07-22, after diagnostic
+  data from the user's own router confirmed a workable, non-hardcoded approach.**
+  Diagnostic command (`for n in $(uci -q get passwall2.${BAL}.balancing_node); do
+  echo "$n: remarks='...' address='...'"; done`) run against the live `wave1_bal`
+  balancer (27 nodes) showed the user's actual subscription convention: most
+  `remarks` values start with a real Unicode flag emoji followed by a Russian
+  city/country name (e.g. `🇵🇱 Варшава 2`, `🇩🇪 Германия - 1`), with one exception
+  with no flag at all (`Финляндия`, plain text). Critically, the previously
+  observed Probe A exit IP `31.56.188.165` exactly matched node `x9gBmZEb`
+  (`🇵🇱 Варшава 2` / `address='31.56.188.165'`), confirming that matching Probe A's
+  observed IP against nodes' literal `address` field is a real, working signal for
+  *this* router, not just a theory.
+  - Implementation, still fully dynamic/non-hardcoded: `observer_watchdog.sh`
+    iterates the active balancer's own `balancing_node` list (already discovered
+    dynamically for the node count, no section names hardcoded) and, when Probe A
+    succeeds, looks for a node whose `address` equals the observed exit IP. If
+    found, that node's raw `remarks` is exposed as `probe_a.node_remarks` in the
+    status JSON (JSON-escaped via a small `json_escape()` helper). No match
+    (hostname-based node, or no node happens to share that IP) → field stays empty,
+    the UI simply omits the flag, nothing is guessed.
+  - `overview.js` splits `node_remarks` into flag + label generically — not via a
+    hardcoded per-country list, but via the Unicode `\p{Regional_Indicator}`
+    property escape, which matches *any* flag emoji (a flag is always exactly two
+    Regional Indicator Symbol codepoints, U+1F1E6–U+1F1FF) regardless of which
+    country it is. Remarks with no such prefix (the `Финляндия` case) fall back to
+    showing the plain text with no flag, instead of erroring or hiding the row.
+  - Rendered order in the Probe A row, per the original request: exit-IP badge →
+    flag + label → "unchanged for Xm". A GeoIP-lookup fallback (decoupled from PW2
+    node data entirely) was considered as an alternative but not needed once the
+    `address`-matching approach was confirmed against real data.
 - **"Show recent events" checkbox alignment fixed.** Root cause (confirmed against
   the theme's own `cascade.css`, not guessed): the checkbox row used the
   `.cbi-value`/`.cbi-value-title`/`.cbi-value-field` CBI-form flex convention (a
