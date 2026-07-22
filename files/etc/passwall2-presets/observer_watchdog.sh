@@ -70,7 +70,10 @@ trap release_lock EXIT
 
 # ---- config helpers ----
 uci_get() { uci -q get "$1" 2>/dev/null; }
-uci_get_list() { uci -q get "$1" 2>/dev/null; }   # list-type options: one item per line
+uci_get_list() { uci -q get "$1" 2>/dev/null; }   # list-type options: values whitespace-
+                                                    # separated on one line on this router's
+                                                    # uci -- don't assume one-per-line; count
+                                                    # via `set -- $(...); echo $#`, not grep -c .
 
 OBS_ENABLED=$(uci_get ${PKG}.main.enabled); OBS_ENABLED=${OBS_ENABLED:-0}
 [ "$OBS_ENABLED" != "1" ] && exit 0
@@ -235,7 +238,13 @@ fi
 ACTIVE_BALANCER=$(uci show passwall2 2>/dev/null | grep "\.protocol='_balancing'$" | grep -v '^passwall2\.@' | head -1 | cut -d. -f2)
 TOTAL_NODES=""
 if [ -n "$ACTIVE_BALANCER" ]; then
-    TOTAL_NODES=$(uci_get_list passwall2.${ACTIVE_BALANCER}.balancing_node | grep -c .)
+    # NOTE: don't count via `grep -c .` (counts lines) -- on this router's uci version,
+    # `uci -q get` on a list-type option returns all values on ONE line, space-separated,
+    # not one-per-line (confirmed on the router 2026-07-22: a 27-entry balancing_node list
+    # counted as "1" until this fix). `set --` + `$#` counts whitespace-separated tokens
+    # via the shell's own word-splitting, so it's correct regardless of uci's line format.
+    set -- $(uci_get_list passwall2.${ACTIVE_BALANCER}.balancing_node)
+    TOTAL_NODES=$#
 fi
 
 # ================= Write status file for the Overview page / widget ===================
