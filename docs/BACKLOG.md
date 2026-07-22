@@ -729,5 +729,68 @@ The status panel (`this.panelNode`) now sits directly inside a bare `cbi-section
 div with no heading. "Recent events" keeps its own `<h3>` unchanged. See
 `docs/SPEC_v0.6.0.md` §4 "Overview page" for the corresponding spec update.
 
-**Not yet done:** the actual Settings tab implementation (menu entry, view file,
-Preset A read+write logic, Widget checkbox list) — scoping only, per this entry.
+**Settings tab implementation — Widget checkbox list (this round, 2026-07-22 later
+evening).** Built the actual skeleton described in Decision 2 above:
+- New menu entry `admin/services/passwall2-presets/settings` (order 2, Overview stays
+  order 1, `widget` bumped to order 3 — still hidden, no `title` key).
+- New `files/.../view/passwall2-presets/settings.js`: a plain native `form.Map` bound
+  to `passwall2_presets`, with one `form.TypedSection('widget', null)` holding one
+  `form.Flag` per Overview row. Left `handleSave`/`handleSaveApply`/`handleReset`
+  un-overridden (unlike `overview.js`, which nulls them out since it's read-only) so
+  the page gets the standard footer for free — verified against LuCI's own
+  `luci.js` source that the three native footer buttons are labeled exactly "Save",
+  "Save & Apply" and "Reset" (no "Dismiss"/"Cancel" in the footer; "Dismiss" is a
+  save-error *modal* button in `form.js`, unrelated). This resolves the open question
+  from earlier in this entry about the exact native button labels.
+- The Widget section's rendered DOM node is relocated into a native `<details
+  open>/<summary>Widget</summary>` wrapper right after `m.render()` resolves (its
+  `id` is deterministic: `cbi-passwall2_presets-widget`), since stock CBI has no
+  built-in collapsible-section primitive (checked `form.js` directly —
+  TypedSection/NamedSection have no collapse option). The section's own title is
+  left blank so `<summary>` is the only heading, avoiding a duplicate "Widget" label.
+- New UCI section `config widget 'widget'` in `files/etc/config/passwall2_presets`
+  (named `'widget'`, not `'main'`, because UCI section names are unique file-wide
+  across all types, and `'main'` is already taken by `config observer`) with 9
+  boolean options, all defaulting to `'1'` (shown): `show_watchdog_status`,
+  `show_xray_process`, `show_probe_a`, `show_probe_c`, `show_probe_b`,
+  `show_probe_d`, `show_last_updated`, `show_configured_nodes`,
+  `show_active_balancer`.
+- ACL file gained a `"write": { "uci": ["passwall2_presets"] }` block (previously
+  read-only — nothing needed to write before Settings existed).
+- `overview.js` gained a `widgetVisible(option)` helper: returns `true`
+  unconditionally when `window.PW2P_WIDGET !== true` (the full Overview tab, which
+  always shows every row per the Decision-2 design principle), otherwise reads the
+  matching UCI flag via `uci.get('passwall2_presets', 'widget', option)` (defaulting
+  to shown if the option happens to be missing). Every row-append in `renderPanel()`
+  is now gated behind the matching `widgetVisible('show_...')` call.
+- `widget.ut` now sets `window.PW2P_WIDGET = true` immediately before calling
+  `ui.instantiateView('passwall2-presets/overview')` — this is the *only*
+  difference between the two entry points now; both still render via the exact same
+  `overview.js` view/render() implementation (no second view file), preserving the
+  original "duplicate the tab, don't build a second thing" design.
+- `load()` in `overview.js` now conditionally calls `uci.load('passwall2_presets')`
+  as a third `Promise.all()` member, but *only* when `window.PW2P_WIDGET === true`
+  — the main Overview tab's 5-second poll loop does not pay for an extra ubus call
+  it doesn't need.
+
+**Also added — "Open widget" button on the Overview tab (new user request, same
+round).** A native `<button class="cbi-button cbi-button-action">` labeled "Open
+ widget", rendered above the status panel only when `window.PW2P_WIDGET !== true`
+(i.e. never shows on the widget page itself). On click, calls `window.open()` with
+the exact feature string `widget.ut`'s own auto-resize script already expects
+(`'width=1,height=1,resizable=yes,scrollbars=yes'`, window name `'pw2p'`) —
+deliberately *not* passing `'noopener'`, since `widget.ut` checks `window.opener` to
+decide whether it's allowed to try `window.resizeTo()`.
+
+**Not yet done:** per-preset row-level "show in Overview"/"show in widget"
+checkboxes (a *different* mechanism from the Widget field-visibility list above —
+see §4's original bullet), and all of Preset A read/write (strategy display,
+strategy generator, `fallback_direct_enabled` toggle) — still open, per Decision 1
+above.
+
+**Deploy note:** this adds a new UCI section and a new ACL write grant, so on top of
+the usual `scp` of changed/new files, the router-side
+`/etc/config/passwall2_presets` needs the new `config widget 'widget'` block added
+(or the whole file re-copied) for `settings.js` to have something to read/write, and
+`/etc/init.d/rpcd restart` (not just `uhttpd restart`) so the ACL change takes
+effect.

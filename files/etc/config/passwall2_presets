@@ -39,3 +39,20 @@ config probe 'ip_direct'
 config probe 'unblocked_direct'
 	option enabled '0'
 	list host ''
+
+# Widget field visibility — controls which Overview rows also appear on the compact
+# standalone widget page (admin/services/passwall2-presets/widget). The full Overview
+# tab always shows every row regardless of these settings; this only trims the widget.
+# Configured from Settings > Widget. Section named 'widget', not 'main', because UCI
+# section names must be unique file-wide across all types, and 'main' is already used
+# by 'config observer'.
+config widget 'widget'
+	option show_watchdog_status '1'
+	option show_xray_process '1'
+	option show_probe_a '1'
+	option show_probe_c '1'
+	option show_probe_b '1'
+	option show_probe_d '1'
+	option show_last_updated '1'
+	option show_configured_nodes '1'
+	option show_active_balancer '1'

@@ -3,6 +3,7 @@
 'require dom';
 'require poll';
 'require fs';
+'require uci';
 
 // Reads files/etc/passwall2-presets/observer_watchdog.sh's own status/log output —
 // see docs/SPEC_v0.6.0.md §4 "Overview page" for the field list this mirrors, and
@@ -113,6 +114,19 @@ function parseStatus(raw) {
 	try { return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
 }
 
+// True on the full Overview tab (always show every row). On the standalone
+// widget page (window.PW2P_WIDGET set by widget.ut before instantiating this
+// same view — see that file), reads the matching Settings > Widget checkbox
+// from the passwall2_presets UCI config instead. Falls back to "shown" if the
+// option is missing (e.g. on an older config that predates this feature),
+// same default as the UCI template ships.
+function widgetVisible(option) {
+	if (window.PW2P_WIDGET !== true)
+		return true;
+	var v = uci.get('passwall2_presets', 'widget', option);
+	return (v == null) || (v == '1');
+}
+
 function renderPanel(raw) {
 	var status = parseStatus(raw);
 
@@ -155,22 +169,29 @@ function renderPanel(raw) {
 		]);
 	}
 
-	var table = E('table', { 'class': 'table' }, [
-		row(_('Watchdog status'), badge(wd.text, wd.kind)),
-		row(_('Xray process'), status.xray_alive == 1
+	var table = E('table', { 'class': 'table' }, []);
+
+	if (widgetVisible('show_watchdog_status'))
+		table.appendChild(row(_('Watchdog status'), badge(wd.text, wd.kind)));
+	if (widgetVisible('show_xray_process'))
+		table.appendChild(row(_('Xray process'), status.xray_alive == 1
 			? badge(_('running'), 'ok')
-			: badge(_('not running'), 'bad')),
-		row(_('Probe A — exit IP via proxy'), probeAValue),
-		row(_('Probe C — exit IP via direct path'), pc.enabled == 1
+			: badge(_('not running'), 'bad')));
+	if (widgetVisible('show_probe_a'))
+		table.appendChild(row(_('Probe A — exit IP via proxy'), probeAValue));
+	if (widgetVisible('show_probe_c'))
+		table.appendChild(row(_('Probe C — exit IP via direct path'), pc.enabled == 1
 			? (pc.ip ? badge(pc.ip, 'ok') : badge(_('unreachable'), 'bad'))
-			: E('em', {}, [ _('disabled') ]))
-	]);
+			: E('em', {}, [ _('disabled') ])));
 
 	var tail = [];
 	[
-		[ 'probe_b', _('Probe B — blocked resource via proxy') ],
-		[ 'probe_d', _('Probe D — unblocked resource via direct path') ]
+		[ 'probe_b', _('Probe B — blocked resource via proxy'), 'show_probe_b' ],
+		[ 'probe_d', _('Probe D — unblocked resource via direct path'), 'show_probe_d' ]
 	].forEach(function(spec) {
+		if (!widgetVisible(spec[2]))
+			return;
+
 		var items = Array.isArray(status[spec[0]]) ? status[spec[0]] : [];
 		var label = spec[1];
 
@@ -192,9 +213,12 @@ function renderPanel(raw) {
 	// last updated -> node counters, moved out of the probe_b/probe_d block above so
 	// they land after ALL probe rows regardless of how many probe_b/probe_d rows exist.
 	tail.forEach(function(r) { table.appendChild(r); });
-	table.appendChild(row(_('Last updated'), fmtAgo(status.updated_at)));
-	table.appendChild(row(_('Configured nodes'), nodes.total_configured || '0'));
-	table.appendChild(row(_('Active balancer'), nodes.active_balancer || E('em', {}, [ _('not found') ])));
+	if (widgetVisible('show_last_updated'))
+		table.appendChild(row(_('Last updated'), fmtAgo(status.updated_at)));
+	if (widgetVisible('show_configured_nodes'))
+		table.appendChild(row(_('Configured nodes'), nodes.total_configured || '0'));
+	if (widgetVisible('show_active_balancer'))
+		table.appendChild(row(_('Active balancer'), nodes.active_balancer || E('em', {}, [ _('not found') ])));
 
 	return table;
 }
@@ -223,9 +247,14 @@ function renderEvents(logText) {
 
 return view.extend({
 	load: function() {
+		// The passwall2_presets UCI config (for widgetVisible()'s Settings > Widget
+		// checkboxes) is only loaded on the standalone widget page -- the full
+		// Overview tab never needs it, since it always shows every row. Avoids an
+		// unnecessary extra ubus round-trip on every 5s poll of the main tab.
 		return Promise.all([
 			L.resolveDefault(fs.read(STATUS_FILE), null),
-			L.resolveDefault(fs.read(LOG_FILE), '')
+			L.resolveDefault(fs.read(LOG_FILE), ''),
+			(window.PW2P_WIDGET === true) ? uci.load('passwall2_presets') : null
 		]);
 	},
 
@@ -239,6 +268,34 @@ return view.extend({
 	render: function(data) {
 		this.panelNode = E('div', {}, [ renderPanel(data[0]) ]);
 		this.eventsNode = E('div', {}, [ renderEvents(data[1]) ]);
+
+		// Neat top-of-page action button opening the compact standalone widget in
+		// its own window (per user request). Only rendered on the full Overview
+		// tab -- window.PW2P_WIDGET is set by widget.ut, so this stays absent when
+		// this same view is instantiated *as* the widget page itself.
+		// Default: empty fragment, not null -- E()'s array-append path does NOT
+		// skip a literal null/undefined array entry (it stringifies it into a
+		// text node instead, per dom.append() in luci.js), so this stays a
+		// no-op in the container's E([...]) call below when left unassigned.
+		var actions = E([]);
+		if (window.PW2P_WIDGET !== true) {
+			var openWidgetBtn = E('button', {
+				'class': 'cbi-button cbi-button-action',
+				'click': function(ev) {
+					ev.preventDefault();
+					// Same window.open() feature string the widget.ut page's own
+					// auto-resize logic expects (it checks window.opener, so this
+					// must NOT pass 'noopener') -- see widget.ut for that side.
+					window.open(
+						L.url('admin/services/passwall2-presets/widget'),
+						'pw2p',
+						'width=1,height=1,resizable=yes,scrollbars=yes'
+					);
+				}
+			}, [ _('Open widget') ]);
+
+			actions = E('div', { 'style': 'margin-bottom:1em' }, [ openWidgetBtn ]);
+		}
 
 		// Recent events: hidden by default, shown only while the checkbox is
 		// checked (per user request) — the checkbox only toggles the wrapper's
@@ -270,6 +327,7 @@ return view.extend({
 		]);
 
 		var container = E([
+			actions,
 			E('div', { 'class': 'cbi-section' }, [
 				this.panelNode
 			]),

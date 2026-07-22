@@ -16,6 +16,12 @@
 </div>
 
 <script type="text/javascript">
+	// Marks this instance of the shared Overview view as the compact widget, so
+	// its widgetVisible() helper (see overview.js) applies the Settings > Widget
+	// show/hide checkboxes instead of showing every row unconditionally, which
+	// is what happens on the full admin/services/passwall2-presets/overview tab.
+	window.PW2P_WIDGET = true;
+
 	L.require('ui').then(function(ui) {
 		ui.instantiateView('passwall2-presets/overview');
 	});

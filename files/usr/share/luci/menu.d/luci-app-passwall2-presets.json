@@ -21,8 +21,20 @@
 			"acl": [ "luci-app-passwall2-presets" ]
 		}
 	},
-	"admin/services/passwall2-presets/widget": {
+	"admin/services/passwall2-presets/settings": {
+		"title": "Settings",
 		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "passwall2-presets/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-passwall2-presets" ],
+			"uci": { "passwall2_presets": true }
+		}
+	},
+	"admin/services/passwall2-presets/widget": {
+		"order": 3,
 		"action": {
 			"type": "template",
 			"path": "passwall2-presets/widget"

@@ -605,6 +605,21 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
   of the Overview panel, but is deliberately meant to stay compact — the whole point of
   a widget is to show less, not everything — so this checkbox list is how the user
   trims it down per field, rather than the widget always mirroring 100% of Overview.
+  - **Implemented 2026-07-22 (Settings skeleton pass):** `settings.js` (a plain native
+    `form.Map` bound to `passwall2_presets`, menu entry added at
+    `admin/services/passwall2-presets/settings`, order 2) with one `form.Flag` per row
+    (`show_watchdog_status`, `show_xray_process`, `show_probe_a`, `show_probe_c`,
+    `show_probe_b`, `show_probe_d`, `show_last_updated`, `show_configured_nodes`,
+    `show_active_balancer` — new `config widget 'widget'` UCI section, all defaulting to
+    `'1'`). Wrapped in a native `<details>/<summary>` element (stock CBI has no generic
+    collapsible-section primitive — checked `form.js` directly) so it reads as the
+    requested expandable list without inventing anything non-native. `overview.js` gained
+    a `widgetVisible()` helper that returns `true` unconditionally on the full Overview
+    tab, and reads the matching UCI flag only when instantiated as the standalone widget
+    (a `window.PW2P_WIDGET` flag set by `widget.ut` right before it calls
+    `ui.instantiateView()` — that's the only difference between the two entry points now).
+    Per-preset row-level checkboxes ("show in Overview"/"show in widget" from the bullet
+    above) and Preset A read/write are **not** part of this pass — still open.
 - **Fallback-chain and per-domain routing UX (proposed, not yet decided):** built
   entirely from PW2's own already-loaded node list — not a free-form custom-server
   field, since the app's core principle is "shell over PW2, no logic outside it."
@@ -620,7 +635,16 @@ onto existing UCI fields from §0.3/§3 (`uci set` + `commit` + apply on
     rather than two different widgets.
 - **Hard global design constraint:** everything must look and behave like native
   OpenWrt/LuCI — no invented UI patterns. Every action goes through the standard OpenWrt
-  **Save / Save & Apply / Cancel** buttons; no custom app-level save flow.
+  page-footer buttons; no custom app-level save flow.
+  - **Verified against LuCI's own source (`luci.js`, `LuCI.view.addFooter`/`handleSave`/
+    `handleSaveApply`/`handleReset`): the three native buttons are labeled exactly
+    "Save", "Save & Apply" and "Reset" — there is no "Dismiss"/"Cancel" button in the
+    page footer.** ("Dismiss" only exists inside `form.js`'s save-error *modal dialog*,
+    unrelated to the page footer.) "Reset" re-renders the form and discards unsaved
+    edits — the closest native equivalent to what was being recalled as "Cancel". Any
+    view using a `form.Map` and leaving `handleSave`/`handleSaveApply`/`handleReset`
+    un-overridden (i.e. not set to `null`, as `overview.js` does since it's read-only)
+    gets this exact footer for free — confirmed this is how `settings.js` works.
 
 ## 5. Implementation order (roadmap) — status as of 2026-07-22
 

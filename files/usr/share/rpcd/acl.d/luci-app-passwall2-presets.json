@@ -10,6 +10,9 @@
 				"file": [ "read", "stat" ]
 			},
 			"uci": [ "passwall2_presets" ]
+		},
+		"write": {
+			"uci": [ "passwall2_presets" ]
 		}
 	}
 }
