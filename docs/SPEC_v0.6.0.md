@@ -147,6 +147,33 @@ auto-recovery mechanism — it sometimes works (incident #3) and sometimes does 
 hours (incidents #1, #2, #4).** No further kill-test is required; a real 9h+ failure is
 stronger evidence than a single controlled test would have provided.
 
+**Root cause found 2026-07-22 ~15:00 MSK (source-grounded, not a guess).** A live check
+during this incident (`ls /tmp/lock/passwall2_monitor.lock` → not found; `ps w | grep
+monitor.sh` → pid 8476 alive) first **disproved** an initial stale-lock hypothesis: the
+lock this session had floated does not exist, so `monitor.sh` is not stuck skipping its
+own loop. Reading the actual upstream source instead
+([`utils.sh`](https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall2/main/luci-app-passwall2/root/usr/share/passwall2/utils.sh),
+[`app.sh`](https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall2/main/luci-app-passwall2/root/usr/share/passwall2/app.sh))
+shows why: `ln_run()` only registers a launched process into `TMP_SCRIPT_FUNC_PATH`
+(`monitor.sh`'s ongoing respawn watch list) when its `queue_run` argument is not `"1"`;
+when `queue_run == "1"` it instead writes a one-shot entry into `TMP_PROCESS_LIST_PATH`,
+which `run_process_queue()` consumes once and deletes — never added to the ongoing watch
+list. `app.sh`'s normal `start()` flow sets `QUEUE_RUN=1` immediately before launching
+nodes (`run_xray` included), and only the ad-hoc `run_socks`/`socks_node_switch` CLI
+paths set `QUEUE_RUN=0`. **Conclusion: under a normal start/restart, the main Xray
+process is never added to `monitor.sh`'s watch list at all — its 58s `pgrep` loop has
+nothing to check for Xray by design, not due to a bug or stuck state.** This uniformly
+explains incidents #1, #2 and #4 without needing per-incident special cases. It also
+casts doubt on the earlier "silent `monitor.sh` respawn" explanation floated for incident
+#3 — if Xray is genuinely never registered under a normal start, `monitor.sh` could not
+have been what revived it in #3 either; incident #3's actual revival mechanism is
+therefore **still unexplained** and is not re-investigated here (flagged, not closed).
+Optional (non-blocking) confirming check for next router session: `ls -la
+/tmp/etc/passwall2/script_func/` should be empty or contain no Xray-referencing entry.
+This finding does not change the watchdog decision below — if anything it strengthens
+it: our Observer/watchdog fills a genuine structural gap in PW2's own design, not a
+flaky/duplicate of something that already works.
+
 **Decision (user, 2026-07-22 ~12:13 MSK): GREENLIT — build an external Xray-death
 watchdog.** No longer an open question. Default action: restart Xray on detected death
 (exact restart mechanism — full `passwall2 restart` vs. a narrower restart of just the

@@ -497,18 +497,36 @@ Xray's own **Observatory/BurstObservatory** feature (confirmed in
 `subjectSelector = {"blc-"}`, `probeInterval`), which is exactly what PW2's balancer
 already uses — not a metric we invent ourselves.
 
-**Open item (blocking node-count implementation):** whether Xray's API inbound is
-enabled on this router, needed to query Observatory live. `uci show passwall2 |
-grep -i api` only found unrelated `tls_serverName` matches — the API inbound (if
-present) is generated into the runtime Xray JSON config, not stored in UCI.
-Next diagnostic step (when back on the router): `grep -rl '"api"'
-/tmp/etc/passwall2/ /var/etc/passwall2/` on the generated config, plus `ps w | grep
-xray` (also tells us whether Xray has come back up since today's OOM #4) and
-`netstat -tlnp | grep xray` / `ss -tlnp | grep xray` for an extra listening port.
-If no API inbound exists, fallback: total from `passwall2.@nodes[*]` vs. count in
-the active balancer's `valid_nodes` selector — cruder, still discovery-based, no
-hardcoding.
+**Resolved 2026-07-22 ~15:00 MSK — no Xray API inbound; use fallback node count.**
+Ran the deeper diagnostic (`ps w | grep xray` → still no process, Xray unchanged
+since OOM #4; `ls /tmp/etc/passwall2/*.json` → empty, no runtime config exists
+while Xray is down, so nothing to inspect live). Rather than wait for a live
+config, read PW2's own source instead: `util_xray.lua` never builds an Xray
+`ApiConfig`/`HandlerService`/`StatsService` block — the only `"api"` hits in that
+file are the unrelated Lua module alias (`local api = require
+"luci.passwall2.api"`). **Conclusion: PW2 does not wire up Xray's API service at
+all**, so Observatory can't be queried live regardless of router state. Fallback
+confirmed as the implementation path: total from `passwall2.@nodes[*]` vs. count
+in the active balancer's `valid_nodes` selector — cruder, still discovery-based,
+no hardcoding.
 
 UCI schema and Overview page content updated accordingly in `docs/SPEC_v0.6.0.md`
 §2 (watchdog merge), §3 (`config observer 'main'` + four new `config probe`
 sections), §4 (Overview status panel content, previously "TBD").
+
+**Side finding — actual root cause of `monitor.sh` unreliability (§0.2).** While
+chasing the API question, floated a stale-lock hypothesis
+(`/tmp/lock/passwall2_monitor.lock`) for why `monitor.sh` shows alive but doesn't
+respawn Xray. Live check **disproved it**: lock file absent, `monitor.sh` (pid
+8476) alive and presumably cycling normally. Read `utils.sh`/`app.sh` source
+instead and found the real mechanism: `ln_run()` only adds a launched process to
+`monitor.sh`'s watch list (`TMP_SCRIPT_FUNC_PATH`) when its `queue_run` arg isn't
+`"1"`; PW2's normal `start()` sets `QUEUE_RUN=1` right before launching nodes
+(`run_xray` included), so under a normal start/restart **Xray is never added to
+`monitor.sh`'s watch list at all** — nothing to check, by design, not a stuck
+state. See the new paragraph in `docs/SPEC_v0.6.0.md` §0.2 for full detail and the
+open question this reopens about incident #3's actual revival mechanism
+(previously attributed to a "silent monitor.sh respawn," which this finding now
+contradicts). No change to the watchdog plan itself — the "clear stale lock"
+remediation idea is dropped (nothing to clear); Probe A + `pgrep xray` + grace
+period restart stands as designed.
