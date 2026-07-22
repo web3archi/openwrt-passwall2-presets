@@ -601,3 +601,62 @@ beforehand, per this project's standing constraint):
   status fields poll every 5s (`poll.add(fn, 5)`, previously implicit/default).
   Settings tab (editing probes/watchdog config from LuCI instead of
   `/etc/config/passwall2_presets` directly) remains not started.
+
+**Overview page, second revision round — 2026-07-22 evening.** Per further user
+feedback on the standalone page (screenshot-verified):
+- Row order changed to: Watchdog status → Xray process → Probe A → Probe C →
+  Probe B → Probe D → Last updated → Configured nodes → Active balancer.
+- **"Currently working" row removed entirely** — it never had real data (documented
+  limitation above: no Xray API) and the user pointed out flatly there's no reason
+  to keep a row that can never be filled in.
+- **Probe A now shows "unchanged for Xm"** next to the exit-IP badge — how long the
+  observed IP has held steady. Computed in `observer_watchdog.sh` itself (new
+  persisted `IP_CHANGED_AT` state var, exposed as `probe_a.ip_since` in the status
+  JSON), not reverse-parsed from the log client-side. Semantics: set on the first
+  ever successful probe (no earlier ground truth exists, so "since observation
+  began" is the honest baseline) and reset whenever the IP actually changes; left
+  untouched while the probe is failing.
+- **Country/flag next to Probe A's IP — investigated, NOT implemented yet, needs a
+  decision.** User asked for a flag+country sourced from PW2's own per-node field.
+  Findings from PW2's own source/community scripts (not the router — no live
+  access):
+  - PW2 nodes have a `remarks` UCI option (confirmed via the package's own `.po`
+    string "Node Remarks"/"节点备注", and multiple community scripts reading/writing
+    `passwall2.<node>.remarks` directly, e.g.
+    [`passwalls.sh`](https://raw.githubusercontent.com/amirhosseinchoghaei/Passwall/main/passwalls.sh)). This is a **freeform label**, not a structured
+    country/flag field — PW2's own node-list UI just prints it as text, no flag icon
+    anywhere in the codebase.
+  - A community auto-switch script
+    ([`passwall-auto-switch.sh`](https://gist.github.com/fakhamatia/d84bdddc39f555bef30574185a19bc53))
+    extracts a country hint from `remarks` with its own regex
+    (`grep -oE '[A-Z]{2,3}\['`), i.e. expecting subscription remarks formatted like
+    `SomeLabel[US]` — but that's *that provider's* naming convention, not a PW2
+    standard; other subscriptions use flag emoji, full country names, or nothing at
+    all in remarks. **Cannot hardcode a parser for a format PW2 itself doesn't
+    define or enforce** (project policy).
+  - Deeper problem: even with a working remarks parser, there's still no way to
+    know *which* node in the active balancer's pool is the one actually carrying
+    Probe A's traffic right now — that's the exact same "no Xray API" gap that
+    killed the "Currently working" row above. Matching Probe A's observed exit IP
+    back to a specific node's `remarks` would require matching against that node's
+    `address` field, which only works when a node's address is a literal IP (many
+    subscriptions use a hostname instead).
+  - Two real options going forward, needing the user's call (not guessed): (a)
+    inspect the user's *actual* remarks text on their own 27 nodes (diagnostic
+    command handed off alongside this update) to see whether their subscription's
+    convention happens to be parseable, matched by IP-literal `address` when
+    possible; or (b) do a live GeoIP lookup directly on Probe A's observed exit IP
+    (decoupled from PW2's node data entirely, always works regardless of remarks
+    format, but adds an external dependency/outbound call the user may not want).
+  Not shipped this round pending that answer.
+- **"Show recent events" checkbox alignment fixed.** Root cause (confirmed against
+  the theme's own `cascade.css`, not guessed): the checkbox row used the
+  `.cbi-value`/`.cbi-value-title`/`.cbi-value-field` CBI-form flex convention (a
+  real native pattern — `.cbi-value { display:flex }`, title column
+  `flex:0 0 180px; text-align:right`), which is correct on its own terms but reads
+  as misaligned next to the plain `.table`/`.tr`/`.td` rows used everywhere else on
+  this page: the flex title column starts well right of the table rows' left edge,
+  and `.td`'s native `vertical-align:middle` (which the flex form lacks) is what
+  keeps a checkbox from sitting above its label's baseline. Fix: the checkbox row
+  now reuses the exact same `row()` table markup as the Status panel — one
+  consistent row style for the whole page, not a second invented one.

@@ -89,6 +89,7 @@ SOCKS_PORT=$(uci_get passwall2.@global[0].node_socks_port)
 
 # ---- persisted state across runs (tmpfs) ----
 LAST_IP=""
+IP_CHANGED_AT=""
 XRAY_DEAD_SINCE=""
 LAST_RESTART_AT=""
 LAST_STATUS="unknown"
@@ -97,6 +98,7 @@ LAST_STATUS="unknown"
 save_state() {
     cat > "$STATE_FILE" <<EOF
 LAST_IP="${PROBE_A_IP}"
+IP_CHANGED_AT="${IP_CHANGED_AT}"
 XRAY_DEAD_SINCE="${XRAY_DEAD_SINCE}"
 LAST_RESTART_AT="${LAST_RESTART_AT}"
 LAST_STATUS="${STATUS}"
@@ -119,8 +121,20 @@ if [ "$PROBE_A_ENABLED" = "1" ] && [ -n "$SOCKS_PORT" ]; then
     done
 fi
 
-if [ "$PROBE_A_OK" = "1" ] && [ -n "$LAST_IP" ] && [ "$LAST_IP" != "$PROBE_A_IP" ]; then
-    log "PROBE-A exit IP changed: ${LAST_IP} -> ${PROBE_A_IP}"
+# ip_changed_at tracks "how long has the current exit IP been stable" for the Overview
+# page (requested 2026-07-22). Semantics, spelled out since there's no ground truth to
+# compare against: it's set the first time Probe A ever succeeds (we don't know the IP's
+# real age before we started observing, so "since observation began" is the honest
+# starting point -- not a fake earlier timestamp), then reset every time the observed IP
+# actually changes. A failed probe (PROBE_A_OK=0) leaves it untouched, since we have no
+# evidence either way while the probe itself is down.
+if [ "$PROBE_A_OK" = "1" ]; then
+    if [ -n "$LAST_IP" ] && [ "$LAST_IP" != "$PROBE_A_IP" ]; then
+        log "PROBE-A exit IP changed: ${LAST_IP} -> ${PROBE_A_IP}"
+        IP_CHANGED_AT=$(now)
+    elif [ -z "$IP_CHANGED_AT" ]; then
+        IP_CHANGED_AT=$(now)
+    fi
 fi
 
 # ================= Watchdog state machine (Probe A + pgrep xray + grace period) ======
@@ -252,12 +266,12 @@ cat > "$STATUS_FILE" <<EOF
 {
   "updated_at": $(now),
   "watchdog_status": "${STATUS}",
-  "probe_a": {"enabled": ${PROBE_A_ENABLED}, "ok": ${PROBE_A_OK}, "ip": "${PROBE_A_IP}"},
+  "probe_a": {"enabled": ${PROBE_A_ENABLED}, "ok": ${PROBE_A_OK}, "ip": "${PROBE_A_IP}", "ip_since": ${IP_CHANGED_AT:-null}},
   "probe_b": ${PROBE_B_JSON},
   "probe_c": {"enabled": ${PROBE_C_ENABLED}, "ip": "${PROBE_C_IP}"},
   "probe_d": ${PROBE_D_JSON},
   "xray_alive": ${XRAY_ALIVE},
-  "nodes": {"active_balancer": "${ACTIVE_BALANCER}", "total_configured": "${TOTAL_NODES}", "currently_working": "unavailable_no_xray_api"}
+  "nodes": {"active_balancer": "${ACTIVE_BALANCER}", "total_configured": "${TOTAL_NODES}"}
 }
 EOF
 

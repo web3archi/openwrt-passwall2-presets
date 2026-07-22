@@ -479,6 +479,20 @@ below are otherwise final, not tentative.
   history (probe transitions, watchdog restarts) — **revised 2026-07-22: hidden by
   default, shown only while a checkbox is checked** (the underlying data still
   refreshes in the background either way, so it's current the moment it's revealed).
+  The checkbox row uses the same plain `.table`/`.tr`/`.td` row markup as the status
+  panel above it, not the `.cbi-value` CBI-form convention — mixing the two on one
+  page is what caused a reported alignment issue; see `docs/BACKLOG.md` P7.
+- **Row order, revised 2026-07-22 evening:** Watchdog status → Xray process → Probe A
+  → Probe C → Probe B → Probe D → Last updated → Configured nodes → Active
+  balancer. The "Currently working" row is **removed** (documented dead field, no
+  Xray API to back it — see below). Probe A's row additionally shows "unchanged for
+  Xm" (how long the exit IP has held steady, tracked in `observer_watchdog.sh`'s own
+  state as `probe_a.ip_since`). A country/flag indicator for Probe A was requested
+  but is **not yet implemented** — PW2 only has a freeform `remarks` label per node,
+  no structured country field, and there's no way to know which node is presently
+  serving traffic (same root cause as the "Currently working" removal); see
+  `docs/BACKLOG.md` P7 for the full investigation and the two options pending the
+  user's decision.
 - **Revised 2026-07-22, superseding the paragraph below:** the native Status >
   Overview widget slot was tried and explicitly rejected by the user ("не надо туда
   его" — wrong place for it). In its place, a **separate standalone page**

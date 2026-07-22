@@ -7,8 +7,8 @@
 // Reads files/etc/passwall2-presets/observer_watchdog.sh's own status/log output —
 // see docs/SPEC_v0.6.0.md §4 "Overview page" for the field list this mirrors, and
 // docs/BACKLOG.md P7 for why node counts/probe fields are shaped the way they are
-// (no live Xray API to query, so nodes.currently_working is a documented limitation,
-// not a bug).
+// (no live Xray API to query, which is also why there is deliberately no "currently
+// active node" row here — see the removed "Currently working" row, 2026-07-22).
 //
 // This same view is also instantiated, unmodified, by the standalone chrome-less
 // widget page at files/usr/share/ucode/luci/template/passwall2-presets/widget.ut —
@@ -67,6 +67,20 @@ function fmtAgo(unixtime) {
 	return Math.floor(mins / 60) + _('h ago');
 }
 
+// Same bucketing as fmtAgo(), but phrased as a plain duration (no "ago" suffix) --
+// used for "how long has the exit IP been stable", where "ago" would read backwards.
+function fmtDuration(unixtime) {
+	if (!unixtime)
+		return null;
+	var secs = Math.max(0, Math.floor(Date.now() / 1000) - unixtime);
+	if (secs < 90)
+		return secs + _('s');
+	var mins = Math.floor(secs / 60);
+	if (mins < 90)
+		return mins + _('m');
+	return Math.floor(mins / 60) + _('h');
+}
+
 function row(label, value) {
 	return E('tr', { 'class': 'tr' }, [
 		E('td', { 'class': 'td left', 'width': '40%' }, [ label ]),
@@ -95,25 +109,37 @@ function renderPanel(raw) {
 	var pc = status.probe_c || {};
 	var nodes = status.nodes || {};
 
+	// Probe A value: exit-IP badge, plus (pending — see docs/BACKLOG.md P7 "country/flag
+	// per node" item) a country/flag slot to be inserted here once PW2's actual node
+	// field for it is confirmed, then "unchanged for Xm" — how long the exit IP has
+	// held steady, computed by the watchdog script itself (ip_since), not guessed here.
+	var probeAValue;
+	if (pa.enabled != 1) {
+		probeAValue = E('em', {}, [ _('disabled') ]);
+	} else if (pa.ok != 1) {
+		probeAValue = badge(_('unreachable'), 'bad');
+	} else {
+		var since = fmtDuration(pa.ip_since);
+		probeAValue = E('span', {}, [
+			badge(pa.ip || '?', 'ok'),
+			since ? E('span', { 'class': 'cbi-value-description', 'style': 'margin-left:.5em' }, [
+				_('unchanged for %s').format(since)
+			]) : ''
+		]);
+	}
+
 	var table = E('table', { 'class': 'table' }, [
 		row(_('Watchdog status'), badge(wd.text, wd.kind)),
-		row(_('Last updated'), fmtAgo(status.updated_at)),
 		row(_('Xray process'), status.xray_alive == 1
 			? badge(_('running'), 'ok')
 			: badge(_('not running'), 'bad')),
-		row(_('Active balancer'), nodes.active_balancer || E('em', {}, [ _('not found') ])),
-		row(_('Configured nodes'), nodes.total_configured || '0'),
-		row(_('Currently working'), nodes.currently_working == 'unavailable_no_xray_api'
-			? E('em', {}, [ _('unavailable — PassWall2 does not expose an Xray API to query this live') ])
-			: (nodes.currently_working || '-')),
-		row(_('Probe A — exit IP via proxy'), pa.enabled == 1
-			? (pa.ok == 1 ? badge(pa.ip || '?', 'ok') : badge(_('unreachable'), 'bad'))
-			: E('em', {}, [ _('disabled') ])),
+		row(_('Probe A — exit IP via proxy'), probeAValue),
 		row(_('Probe C — exit IP via direct path'), pc.enabled == 1
 			? (pc.ip ? badge(pc.ip, 'ok') : badge(_('unreachable'), 'bad'))
 			: E('em', {}, [ _('disabled') ]))
 	]);
 
+	var tail = [];
 	[
 		[ 'probe_b', _('Probe B — blocked resource via proxy') ],
 		[ 'probe_d', _('Probe D — unblocked resource via direct path') ]
@@ -122,7 +148,7 @@ function renderPanel(raw) {
 		var label = spec[1];
 
 		if (items.length === 0) {
-			table.appendChild(row(label, E('em', {}, [ _('not configured') ])));
+			tail.push(row(label, E('em', {}, [ _('not configured') ])));
 			return;
 		}
 
@@ -130,10 +156,18 @@ function renderPanel(raw) {
 			var val = (item.status == 'reachable')
 				? badge((item.host || '?') + ' (' + item.latency_ms + ' ms)', 'ok')
 				: badge((item.host || '?') + ' — ' + _('unreachable'), 'bad');
-			table.appendChild(row(label, val));
+			tail.push(row(label, val));
 			label = '';
 		});
 	});
+
+	// Row order per user request 2026-07-22: watchdog -> xray -> probes A/C/B/D ->
+	// last updated -> node counters, moved out of the probe_b/probe_d block above so
+	// they land after ALL probe rows regardless of how many probe_b/probe_d rows exist.
+	tail.forEach(function(r) { table.appendChild(r); });
+	table.appendChild(row(_('Last updated'), fmtAgo(status.updated_at)));
+	table.appendChild(row(_('Configured nodes'), nodes.total_configured || '0'));
+	table.appendChild(row(_('Active balancer'), nodes.active_balancer || E('em', {}, [ _('not found') ])));
 
 	return table;
 }
@@ -193,6 +227,21 @@ return view.extend({
 
 		this.eventsWrap = E('div', { 'style': 'display:none' }, [ this.eventsNode ]);
 
+		// Reuses the exact same .table/.tr/.td row markup as the Status panel above
+		// (the row() helper), instead of the .cbi-value/.cbi-value-title flex-form
+		// convention -- that convention is correct on its own terms (verified against
+		// the theme's own cascade.css: .cbi-value is display:flex, title column is a
+		// genuine flex:0 0 180px right-aligned box), but mixing it with the plain-table
+		// rows above it on the same page is what read as "misaligned" (title column
+		// starts well right of the Status rows' left edge, and .td's own native
+		// vertical-align:middle -- which the flex form doesn't have -- is what the
+		// checkbox needs to stop sitting above the label). One consistent row style
+		// for the whole page, not a second invented one.
+		var toggleLabel = E('label', { 'for': 'pw2p-events-toggle' }, [ _('Show recent events') ]);
+		var toggleTable = E('table', { 'class': 'table' }, [
+			row(toggleLabel, eventsToggle)
+		]);
+
 		var container = E([
 			E('h2', {}, [ _('PassWall2 Presets — Overview') ]),
 			E('p', { 'class': 'cbi-value-description' }, [
@@ -207,12 +256,7 @@ return view.extend({
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, [ _('Recent events') ]),
-				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title', 'for': 'pw2p-events-toggle' }, [
-						_('Show recent events')
-					]),
-					E('div', { 'class': 'cbi-value-field' }, [ eventsToggle ])
-				]),
+				toggleTable,
 				this.eventsWrap
 			])
 		]);
