@@ -379,10 +379,15 @@ not mixed with `passwall2`. Template shipped at `files/etc/config/passwall2_pres
 this repo, consumed by `files/etc/passwall2-presets/observer_watchdog.sh`:
 
 ```
-config global 'main'
+config global 'global'
     option preset 'best_node'      # currently active preset (discovery/id, no hardcoded values inside)
     option strategy 'stable'       # fast|stable|manual — maps to the table in §2
 
+# NOTE: section names must be unique across the whole file regardless of type — UCI errors
+# with "section of different type overwrites prior section with same name" if two sections
+# (even of different types) share a name. `global 'global'` + `observer 'main'` avoids the
+# collision that shipped in an earlier draft (`global 'main'` + `observer 'main'`), caught
+# during first router deploy 2026-07-22.
 config observer 'main'
     option enabled '1'
     option interval '30'                # seconds; lightweight probe, not 58s like monitor.sh — separate process

@@ -1,5 +1,5 @@
 
-config global 'main'
+config global 'global'
 	option preset 'best_node'
 	option strategy 'stable'
 
