@@ -1021,3 +1021,117 @@ security issue.
 **Status:** open, root-cause unconfirmed, no code changes made in response to this
 report yet — deliberately deferred to next session per user request to wrap up for
 tonight.
+
+## P12 — 2026-07-23: batch of user-requested backlog items (no code changes this entry — notes only)
+
+### P12.1 — Watchdog events should go to the system log
+
+Currently the Xray watchdog's actions/state transitions are not confirmed to be
+logged anywhere durable (needs check against `observer 'main'`'s actual
+implementation — this note is a requirement capture, not a design). Requirement:
+watchdog events (detection of a dead/unhealthy state, restart action taken,
+recovery confirmed, etc.) should be written to the system log (`logread`/syslog),
+not just held in memory or a status field, so they're visible via the router's
+normal log tooling and survive a reboot/restart of the LuCI page itself.
+
+### P12.2 — New preset idea: "Shunt" (split-tunnel by host/domain, default=direct)
+
+Proposed 4th preset, distinct from the existing Balancing-based Fastest/Most
+stable and from Manual with auto-restore: a **shunt** mode where the *default*
+route is direct (no proxy), and only explicitly-listed hosts/domains go through
+the proxy — the inverse of "everything through proxy, bypass only exceptions."
+
+Needs full design writeup (next session, not done yet) covering:
+- How to actually create this in PassWall2's own UI/UCI (which section type — PW2
+  calls this "Shunt" node type already, per its own Node List page terminology —
+  confirm exact UCI schema from PW2's own Lua source before building anything,
+  same discovery-not-hardcoding approach used for `_balancing`/socks_config.lua).
+- Where to source the domain/IP list databases: PW2 ships with built-in
+  geosite/geoip database options — enumerate what's actually bundled (e.g.
+  category lists like `geosite:google`, `geosite:cn`, `geoip:private`, a
+  "gfwlist"-style curated list, or similar) vs. what the user would need to
+  supply/import themselves. Document how PW2's own list-selection UI works today
+  so the addon's UI can either mirror it or defer to it.
+- How to express "this goes through proxy, this goes direct" concretely in the
+  UI — list-picker against PW2's own discovered/available lists (per project's
+  no-free-text-fields rule), plus how default-direct vs. explicit-proxy-list
+  precedence actually resolves in PW2's shunt implementation.
+
+**Open design question, explicitly flagged by user as needing discussion, not yet
+decided:** should Shunt be its own 4th top-level preset (parallel to
+Fastest/Most stable/Manual), or should it instead be a *feature/toggle* layered
+on top of the existing presets — since the addon already juggles two somewhat
+orthogonal concepts (balancing algorithm choice vs. proxy/direct routing scope),
+and conflating a 3rd axis (shunt) into the same "pick one preset" mental model
+may not be the right shape. Needs a real discussion before implementation,
+not just bolted on as "preset D."
+
+### P12.3 — Widget settings section should be collapsed by default on page load
+
+**Confirmed in code (2026-07-23):** `settings.js` currently calls
+`wrapInDetails('#cbi-passwall2_presets-widget', _('Widget'), true)` — the third
+arg (`openByDefault`) is `true`, i.e. Widget currently opens expanded on page
+load. Same for Best node:
+`wrapInDetails('#cbi-passwall2_presets-best_node', _('Best node (Preset A)'), true)`.
+Requirement: change Widget's `openByDefault` to `false` so it's collapsed on
+first load. (Best node's default-open state is a separate call — see P12.7 for
+whether it should also default closed once more presets exist alongside it.)
+
+### P12.4 — Every field in Settings must have an annotation/description, including fields inside collapsible sections
+
+Blanket UI requirement: every option/field rendered on the Settings page — 
+including ones nested inside `<details>` collapsible blocks (Widget, Best node
+strategy sub-fields, watchdog settings once P12.6 exists, etc.) — must have a
+`.description` string explaining what it does and its effect. Audit all existing
+fields for missing descriptions as part of implementing this, don't just apply it
+to new fields going forward.
+
+### P12.5 — Needs discussion: is the "ordered backup list" framing of Manual with auto-restore actually accurate/needed?
+
+User flagged this line from the current `strategy.description` text in
+`settings.js` as confusing and possibly wrong:
+
+> "Manual with auto-restore is PassWall2's own SOCKS Auto Switch feature: an
+> explicitly pinned Main node plus an ordered backup list, instead of an
+> algorithm picking the winner."
+
+User's objection (verbatim intent): unclear where any "manual ordering" actually
+happens or is exposed/used — questions whether this is a real, useful concept in
+PW2's own SOCKS Auto Switch behavior or whether the "ordered" framing is
+extraneous / not actually meaningful given how `autoswitch_backup_node`
+(DynamicList) is actually consumed by PW2 itself. **Needs discussion next
+session**, re-reading `socks_config.lua`'s actual backup-node-selection logic
+(does it try backups strictly in list order, or does something else — e.g.
+health-based pick, `backup_node_group`/`backup_node_match_rule` matching —
+determine which backup is used?) before deciding whether to keep, cut, or rewrite
+this line and possibly the `DynamicList`-vs-ordering rationale recorded in P10's
+notes.
+
+### P12.6 — Ability to enable/disable the addon's own Xray watchdog, and possibly expose some of its settings
+
+Currently the Xray watchdog (`observer 'main'`) has no user-facing on/off switch
+in Settings, nor exposed tunables. Requirement: add a way to enable/disable the
+watchdog from the Settings page, and evaluate which of its internal
+parameters (if any — needs inventory of what `observer 'main'` actually reads
+today) are worth exposing as user-configurable settings rather than being fixed
+in code.
+
+### P12.7 — UI consistency: every preset, the watchdog settings, and any settings group with sub-settings must be collapsible
+
+Blanket UI requirement, generalizing P12.3: in Settings, **every preset section**
+(Best node / Manual / future Shunt per P12.2), the watchdog settings (once P12.6
+exists), and any other settings group that itself contains sub-settings, must be
+rendered inside a collapsible `<details>` block (the existing `wrapInDetails()`
+helper from P8/P10) — not just Widget.
+
+**Confirmed in code (2026-07-23):** Best node (Preset A) is already wrapped via
+`wrapInDetails('#cbi-passwall2_presets-best_node', _('Best node (Preset A)'), true)`
+(same helper, `openByDefault=true`), so the collapsibility mechanism itself
+already applies uniformly to both existing sections — this item is really about
+(a) making sure every *future* group (Shunt from P12.2, watchdog settings from
+P12.6) also gets wrapped the same way rather than being forgotten, and (b)
+revisiting each section's individual `openByDefault` value once there are 3-4
+collapsible groups on one page (all defaulting to `true` today means the page
+opens with everything expanded, which may defeat the point of collapsing at
+all — decide per-section defaults next session, informed by P12.3's Widget-
+specific decision).
