@@ -1073,9 +1073,17 @@ not just bolted on as "preset D."
 arg (`openByDefault`) is `true`, i.e. Widget currently opens expanded on page
 load. Same for Best node:
 `wrapInDetails('#cbi-passwall2_presets-best_node', _('Best node (Preset A)'), true)`.
-Requirement: change Widget's `openByDefault` to `false` so it's collapsed on
-first load. (Best node's default-open state is a separate call — see P12.7 for
-whether it should also default closed once more presets exist alongside it.)
+
+**Clarified by user (2026-07-23, same day):** this is specifically about the
+Widget *settings* section inside the Settings tab (the collapsible block
+configured via Settings > Widget), not the standalone widget page itself —
+confirmed that's what P12.3 already meant. **Scope widened:** not just Widget —
+the user wants *every* collapsible section on the Settings page (Widget, Best
+node, and any future ones from P12.2/P12.6) to default to **collapsed/closed**
+on first page load. Requirement: change every current `wrapInDetails(...)` call's
+`openByDefault` argument from `true` to `false`. See P12.7 (updated) — this
+supersedes that item's "decide per-section defaults next session" language; the
+decision is now made: default closed, uniformly, for all sections.
 
 ### P12.4 — Every field in Settings must have an annotation/description, including fields inside collapsible sections
 
@@ -1128,10 +1136,10 @@ helper from P8/P10) — not just Widget.
 `wrapInDetails('#cbi-passwall2_presets-best_node', _('Best node (Preset A)'), true)`
 (same helper, `openByDefault=true`), so the collapsibility mechanism itself
 already applies uniformly to both existing sections — this item is really about
-(a) making sure every *future* group (Shunt from P12.2, watchdog settings from
-P12.6) also gets wrapped the same way rather than being forgotten, and (b)
-revisiting each section's individual `openByDefault` value once there are 3-4
-collapsible groups on one page (all defaulting to `true` today means the page
-opens with everything expanded, which may defeat the point of collapsing at
-all — decide per-section defaults next session, informed by P12.3's Widget-
-specific decision).
+making sure every *future* group (Shunt from P12.2, watchdog settings from
+P12.6) also gets wrapped the same way rather than being forgotten.
+
+**Decided by user (2026-07-23, same day, see updated P12.3):** all sections
+default **closed**, not just Widget — no longer an open question. Next session:
+flip `openByDefault` to `false` on every existing `wrapInDetails(...)` call, and
+keep new ones (Shunt, watchdog) defaulting closed too.
