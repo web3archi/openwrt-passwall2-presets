@@ -1143,3 +1143,49 @@ P12.6) also gets wrapped the same way rather than being forgotten.
 default **closed**, not just Widget — no longer an open question. Next session:
 flip `openByDefault` to `false` on every existing `wrapInDetails(...)` call, and
 keep new ones (Shunt, watchdog) defaulting closed too.
+
+## P13 — 2026-07-23: OUT OF SCOPE for this addon — PassWall2/router-level infra question: move geosite/geoip databases to external flash storage
+
+**Not a passwall2-presets task.** This is a PassWall2/router infrastructure
+question, unrelated to this repo's Settings/Overview/Widget/watchdog work.
+Recorded here only so it isn't lost — belongs either in a separate
+`openwrt-router-maintenance`-style project note or its own discussion, not in
+this addon's implementation backlog. Flagging clearly to avoid conflating it
+with P12.2 (Shunt preset UI) even though it's related in subject matter (both
+touch geosite/geoip lists).
+
+**Problem statement (as given by user).** The router's current direct-routing
+rule is based on a custom geosite/geoip-style database that's deliberately
+small — it fits in the router's limited storage/RAM today, but it is not the
+*complete* list (a cut-down subset, not the full upstream database). To make a
+future Shunt/direct-routing setup work off the *full* lists instead of the
+current trimmed-down one, the databases would need to live somewhere other than
+main storage/RAM (which doesn't have room for the full-size files) — specifically
+on external flash storage (a USB drive), not the router's internal
+flash/overlay.
+
+**Three open questions, unanswered, need research/testing before any design:**
+
+1. **Persistence across reboot.** Can the full-size databases actually be
+   relocated to a USB flash drive in a way that survives a router reboot (i.e.
+   properly mounted at boot via fstab/block-mount, not just manually mounted in
+   the current session) so PassWall2 (or whatever consumes the list) can find
+   them at the same path every time without manual intervention after a power
+   cycle?
+2. **Update tooling.** Would need to write our own update scripts for keeping
+   these full-size databases current — check first whether PassWall2 (or
+   OpenWrt's `v2ray-geodata`/`geoview`-style packages) already ships an
+   auto-update mechanism for the *full* upstream lists; only write custom
+   scripts if nothing suitable already exists.
+3. **Read-speed sufficiency.** Is on-demand read throughput from the USB flash
+   drive adequate for routing-lookup use (assumption stated: the port is
+   likely **USB 2.0** on this router, and the flash drive itself is
+   "reasonably fast" but unverified) — needs actual measurement (e.g. `hdparm`/
+   `dd` read benchmark, or just empirical latency/CPU-load testing once a real
+   Shunt setup is routing live traffic against the externally-stored full
+   lists) rather than assumption, before committing to this as the storage
+   approach.
+
+**Status:** question captured, zero investigation done yet. Needs its own
+research pass (ideally outside this repo) before any of P12.2's Shunt-preset UI
+work can assume "full lists" are actually a viable option on this hardware.
