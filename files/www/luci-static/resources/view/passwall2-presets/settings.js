@@ -357,25 +357,73 @@ return view.extend({
 		s.anonymous = true;
 		s.addremove = false;
 
-		function addFlag(name, title) {
+		function addFlag(name, title, description) {
 			var o = s.option(form.Flag, name, title);
 			o.rmempty = false;
 			o.default = '1';
+			if (description)
+				o.description = description;
 			return o;
 		}
 
 		// Order matches the Overview panel's own row order (see overview.js's
 		// "Row order per user request 2026-07-22" comment) so the checkbox list reads
 		// top-to-bottom exactly like the thing it's controlling.
-		addFlag('show_watchdog_status', _('Watchdog status'));
-		addFlag('show_xray_process', _('Xray process'));
-		addFlag('show_probe_a', _('Probe A — exit IP via proxy'));
-		addFlag('show_probe_c', _('Probe C — exit IP via direct path'));
-		addFlag('show_probe_b', _('Probe B — blocked resource via proxy'));
-		addFlag('show_probe_d', _('Probe D — unblocked resource via direct path'));
-		addFlag('show_last_updated', _('Last updated'));
-		addFlag('show_configured_nodes', _('Configured nodes'));
-		addFlag('show_active_balancer', _('Active balancer'));
+		addFlag('show_watchdog_status', _('Watchdog status'),
+			_('The Observer watchdog\'s verdict on the proxy chain, driven by Probe A ' +
+			'plus a live check of the Xray process. OK — the chain answers and ' +
+			'Xray is alive; Degraded — a probe failed while Xray still runs (not ' +
+			'necessarily a chain failure); Down (grace period) — the chain is down ' +
+			'and the watchdog is waiting out its grace period before acting; ' +
+			'Restarting / Restarted, confirming — the automatic repair attempt ' +
+			'itself; Disabled — the Observer is switched off in ' +
+			'/etc/config/passwall2_presets.'));
+		addFlag('show_xray_process', _('Xray process'),
+			_('Whether the Xray core process is actually running, checked live by the ' +
+			'watchdog on every pass (about every 30 seconds). Running alone does not ' +
+			'prove traffic flows — the probes below answer that.'));
+		addFlag('show_probe_a', _('Probe A — exit IP via proxy'),
+			_('The public exit IP your traffic presents to the outside world while ' +
+			'going through the proxy. The row also shows how long this exit IP has ' +
+			'held steady and, when the IP matches one of the active balancer node\'s ' +
+			'own addresses, that node\'s flag and label from its PassWall2 remarks — ' +
+			'so you can see at a glance which node you are riding.'));
+		addFlag('show_probe_c', _('Probe C — exit IP via direct path'),
+			_('The exit IP seen without the proxy: your plain ISP address, fetched ' +
+			'around the chain. Compare with Probe A — if both show the same IP, your ' +
+			'traffic is leaving by the direct path and the proxy is not in the loop. ' +
+			'Stays disabled until you set up a direct/shunt rule that routes the ' +
+			'IP-checker host outside the proxy (see the README how-to) and enable ' +
+			'the ip_direct probe in /etc/config/passwall2_presets.'));
+		addFlag('show_probe_b', _('Probe B — blocked resource via proxy'),
+			_('Checks that a resource you listed as blocked actually comes back ' +
+			'through the proxy, with its latency. Rows show not configured until you ' +
+			'add hosts to the blocked_via_proxy probe in ' +
+			'/etc/config/passwall2_presets (no defaults on purpose — block lists ' +
+			'differ per region). If Probe A looks fine but B fails, your current ' +
+			'node cannot reach that resource: wrong exit country or a dead pool ' +
+			'member.'));
+		addFlag('show_probe_d', _('Probe D — unblocked resource via direct path'),
+			_('Fetches a known-open resource without the proxy — the baseline that ' +
+			'plain internet still works. Rows show not configured until you add ' +
+			'hosts to the unblocked_direct probe in /etc/config/passwall2_presets. ' +
+			'If D fails while A works, the proxy is fine and the problem is the ' +
+			'router\'s own direct connectivity (or the D target itself).'));
+		addFlag('show_last_updated', _('Last updated'),
+			_('Age of the Observer\'s last refresh, read from its status file (the ' +
+			'watchdog runs about every 30 seconds; the page itself re-polls every 5 ' +
+			'seconds). If it stops advancing while the page is open, the watchdog ' +
+			'script has stopped — check the recent events list on the Overview ' +
+			'tab.'));
+		addFlag('show_configured_nodes', _('Configured nodes'),
+			_('How many nodes PassWall2 currently has configured — the pool your Best ' +
+			'node strategy picks from. A snapshot from the Observer\'s last refresh, ' +
+			'not a live count.'));
+		addFlag('show_active_balancer', _('Active balancer'),
+			_('Which Balancing node is currently set as the Main node — the same node ' +
+			'the Strategy field above switches between Fastest, Most stable and ' +
+			'Manual. Not found means no Balancing node exists yet: create one on ' +
+			'PassWall2\'s own Node List page (this addon never creates it for you).'));
 
 		return m.render().then(function(mapEl) {
 			function wrapInDetails(id, title, openByDefault) {
