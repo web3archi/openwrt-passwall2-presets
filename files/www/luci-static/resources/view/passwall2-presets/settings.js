@@ -154,7 +154,10 @@ function ensureManualNodePair(mainId, backupIds, restoreOn) {
 	if (!uci.get('passwall2', MANUAL_NODE_SECTION))
 		uci.add('passwall2', 'nodes', MANUAL_NODE_SECTION);
 
-	uci.set('passwall2', MANUAL_NODE_SECTION, 'type', 'Socks');
+	uci.set('passwall2', MANUAL_NODE_SECTION, 'type', 'Xray');
+	uci.set('passwall2', MANUAL_NODE_SECTION, 'protocol', 'socks');
+	uci.set('passwall2', MANUAL_NODE_SECTION, 'tls', '0');
+	uci.set('passwall2', MANUAL_NODE_SECTION, 'transport', 'raw');
 	uci.set('passwall2', MANUAL_NODE_SECTION, 'address', '127.0.0.1');
 	uci.set('passwall2', MANUAL_NODE_SECTION, 'port', port);
 	uci.set('passwall2', MANUAL_NODE_SECTION, 'remarks', _('PW2 Presets — Manual auto-restore'));
