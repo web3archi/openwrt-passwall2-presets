@@ -439,7 +439,7 @@ return view.extend({
 
 			// Preset A above Widget, per the Settings tab layout this was designed against.
 			wrapInDetails('#cbi-passwall2_presets-best_node', _('Best node (Preset A)'), true);
-			wrapInDetails('#cbi-passwall2_presets-widget', _('Widget'), true);
+			wrapInDetails('#cbi-passwall2_presets-widget', _('Widget'), false);
 
 			return mapEl;
 		});
