@@ -128,6 +128,21 @@ function findBalancerSection() {
 	return null;
 }
 
+// Finds the shunt node PW2 uses as Main (or the first one — this setup has
+// exactly one). Returns null when no shunt exists; the custom preset then
+// falls back to taking the Main slot itself.
+function findShuntSection() {
+	var nodes = loadNodes();
+	var shunts = nodes.filter(function(n) { return n.protocol === '_shunt'; });
+	if (!shunts.length)
+		return null;
+	var mainNode = uci.get('passwall2', '@global[0]', 'node');
+	for (var i = 0; i < shunts.length; i++)
+		if (shunts[i]['.name'] === mainNode)
+			return { section: shunts[i] };
+	return { section: shunts[0] };
+}
+
 function computeDefaultSocksPort() {
 	// Mirrors PW2's own default-port formula for a new socks section (confirmed from
 	// socks_config.lua): (count of existing socks sections) + 1 + 1080.
@@ -213,8 +228,17 @@ return view.extend({
 			'exit. The checkbox mirrors what PassWall2 is actually doing right ' +
 			'now. Requires the Preset A Balancing node (see below).');
 		customEnable.cfgvalue = function() {
-			return (uci.get('passwall2', '@global[0]', 'tcp_node') ===
-				CUSTOM_NODE_SECTION) ? '1' : '0';
+			// Reality: active when the custom node is the live exit — as the
+			// shunt's default (through the Balancing node, the normal case) or
+			// as the Main node itself (no-shunt fallback).
+			var mainNode = uci.get('passwall2', '@global[0]', 'node');
+			var shunt = findShuntSection();
+			if (shunt && mainNode === shunt.section['.name'] &&
+			    shunt.section.default_node === CUSTOM_NODE_SECTION)
+				return '1';
+			if (mainNode === CUSTOM_NODE_SECTION)
+				return '1';
+			return '0';
 		};
 		customEnable.validate = function(section_id, value) {
 			if (value !== '1')
@@ -234,19 +258,37 @@ return view.extend({
 			return true;
 		};
 		customEnable.write = function(section_id, value) {
+			var shunt = findShuntSection();
+			var bal = findBalancerSection();
+			var balName = bal ? bal.section['.name'] : null;
+
 			if (value !== '1') {
-				var tcpNow = uci.get('passwall2', '@global[0]', 'tcp_node');
-				if (tcpNow === CUSTOM_NODE_SECTION) {
-					var bal = findBalancerSection();
-					if (bal) {
-						uci.set('passwall2', '@global[0]', 'tcp_node',
-							bal.section['.name']);
-						uci.set('passwall2', '@global[0]', 'udp_node',
-							bal.section['.name']);
-					}
+				// OFF: hand the exit back. Restore what the preset replaced, or
+				// the Balancing node when nothing was remembered — without the
+				// flag everything runs as before (balancer exit).
+				if (shunt && shunt.section.default_node === CUSTOM_NODE_SECTION) {
+					var prevNode = uci.get('passwall2_presets', 'custom_socks',
+						'prev_default_node');
+					var prevTag = uci.get('passwall2_presets', 'custom_socks',
+						'prev_default_proxy_tag');
+					uci.set('passwall2', shunt.section['.name'], 'default_node',
+						prevNode || (balName || '_direct'));
+					if (prevTag)
+						uci.set('passwall2', shunt.section['.name'],
+							'default_proxy_tag', prevTag);
+					else
+						uci.unset('passwall2', shunt.section['.name'],
+							'default_proxy_tag');
+				}
+				var mainNode = uci.get('passwall2', '@global[0]', 'node');
+				if (mainNode === CUSTOM_NODE_SECTION && balName) {
+					uci.set('passwall2', '@global[0]', 'node', balName);
+					uci.set('passwall2', '@global[0]', 'tcp_node', balName);
+					uci.set('passwall2', '@global[0]', 'udp_node', balName);
 				}
 				return;
 			}
+
 			var hostOpt = this.map.lookupOption('custom_socks_host', section_id)[0];
 			var portOpt = this.map.lookupOption('custom_socks_port', section_id)[0];
 			var userOpt = this.map.lookupOption('custom_socks_user', section_id)[0];
@@ -255,7 +297,6 @@ return view.extend({
 			var port = (portOpt && portOpt.formvalue(section_id)) || '';
 			var user = (userOpt && userOpt.formvalue(section_id)) || '';
 			var pass = (passOpt && passOpt.formvalue(section_id)) || '';
-			var balName = findBalancerSection().section['.name'];
 
 			if (!uci.get('passwall2', CUSTOM_NODE_SECTION))
 				uci.add('passwall2', 'nodes', CUSTOM_NODE_SECTION);
@@ -274,13 +315,38 @@ return view.extend({
 				uci.unset('passwall2', CUSTOM_NODE_SECTION, 'password');
 			uci.set('passwall2', CUSTOM_NODE_SECTION, 'tls', '0');
 			uci.set('passwall2', CUSTOM_NODE_SECTION, 'transport', 'raw');
-			uci.set('passwall2', CUSTOM_NODE_SECTION, 'chain_proxy', '1');
-			uci.set('passwall2', CUSTOM_NODE_SECTION, 'preproxy_node', balName);
 			uci.set('passwall2', CUSTOM_NODE_SECTION, 'remarks',
 				_('PW2 Presets — Custom SOCKS5'));
 
-			uci.set('passwall2', '@global[0]', 'tcp_node', CUSTOM_NODE_SECTION);
-			uci.set('passwall2', '@global[0]', 'udp_node', CUSTOM_NODE_SECTION);
+			if (shunt) {
+				// Normal case: keep the shunt as Main (it preserves the direct
+				// rules), point its default at our node and chain the dial
+				// through the Balancing node. Remember what was replaced.
+				if (shunt.section.default_node !== CUSTOM_NODE_SECTION) {
+					uci.set('passwall2_presets', 'custom_socks', 'prev_default_node',
+						shunt.section.default_node || '');
+					uci.set('passwall2_presets', 'custom_socks',
+						'prev_default_proxy_tag',
+						shunt.section.default_proxy_tag || '');
+				}
+				uci.set('passwall2', shunt.section['.name'], 'default_node',
+					CUSTOM_NODE_SECTION);
+				uci.set('passwall2', shunt.section['.name'], 'default_proxy_tag',
+					balName);
+				uci.set('passwall2', '@global[0]', 'node', shunt.section['.name']);
+				uci.set('passwall2', '@global[0]', 'tcp_node',
+					shunt.section['.name']);
+				uci.set('passwall2', '@global[0]', 'udp_node',
+					shunt.section['.name']);
+			} else {
+				// No shunt: the custom node becomes the Main exit, dialed through
+				// the Balancing node via the node's own preproxy fields.
+				uci.set('passwall2', CUSTOM_NODE_SECTION, 'chain_proxy', '1');
+				uci.set('passwall2', CUSTOM_NODE_SECTION, 'preproxy_node', balName);
+				uci.set('passwall2', '@global[0]', 'node', CUSTOM_NODE_SECTION);
+				uci.set('passwall2', '@global[0]', 'tcp_node', CUSTOM_NODE_SECTION);
+				uci.set('passwall2', '@global[0]', 'udp_node', CUSTOM_NODE_SECTION);
+			}
 		};
 
 		var customHost = sCustom.option(form.Value, 'custom_socks_host',
@@ -331,31 +397,37 @@ return view.extend({
 			'plus an ordered backup list, instead of an algorithm picking the winner.');
 
 		strategy.cfgvalue = function(section_id) {
-			var tcpNode = uci.get('passwall2', '@global[0]', 'tcp_node');
-			if (!tcpNode)
+			// PW2 26.7.16 routes by the global `node` key (tcp_node/udp_node are
+			// legacy here); fall back to them for older configs.
+			var mainNode = uci.get('passwall2', '@global[0]', 'node') ||
+				uci.get('passwall2', '@global[0]', 'tcp_node');
+			if (!mainNode)
 				return '';
 
 			if (tcpNode === MANUAL_NODE_SECTION &&
 			    uci.get('passwall2', MANUAL_SOCKS_SECTION, 'enabled') === '1')
 				return 'manual';
 
-			// Our Custom SOCKS5 node as Main: the Balancing node still runs
-			// underneath (preproxy), so keep showing its live strategy instead
-			// of a blank "not set via this addon".
-			if (tcpNode === CUSTOM_NODE_SECTION &&
-			    uci.get('passwall2', CUSTOM_NODE_SECTION, 'chain_proxy') === '1') {
-				var balC = findBalancerSection();
-				if (balC && uci.get('passwall2', CUSTOM_NODE_SECTION,
-				                   'preproxy_node') === balC.section['.name']) {
-					var bsC = balC.section.balancingStrategy;
-					if (bsC === 'leastPing') return 'fast';
-					if (bsC === 'leastLoad') return 'stable';
-				}
-				return '';
-			}
+			var bal = findBalancerSection();
+			var shunt = findShuntSection();
+			var balancerUnderneath = !!(
+				mainNode === CUSTOM_NODE_SECTION ||
+				(shunt && mainNode === shunt.section['.name'] &&
+					(shunt.section.default_node === CUSTOM_NODE_SECTION ||
+					 (bal && shunt.section.default_node === bal.section['.name']))));
 
 			var bal = findBalancerSection();
-			if (bal && tcpNode === bal.section['.name']) {
+
+			// The Balancing node keeps running underneath all of the above, so
+			// its live strategy is what is actually running — show it instead
+			// of a blank "not set via this addon".
+			if (balancerUnderneath && bal && bal.kind === 'xray_balancing') {
+				var bsC = bal.section.balancingStrategy;
+				if (bsC === 'leastPing') return 'fast';
+				if (bsC === 'leastLoad') return 'stable';
+			}
+
+			if (bal && mainNode === bal.section['.name']) {
 				if (bal.kind === 'xray_balancing') {
 					var bs = bal.section.balancingStrategy;
 					if (bs === 'leastPing') return 'fast';
@@ -411,6 +483,7 @@ return view.extend({
 
 				ensureManualNodePair(mainId, backupIds, restoreOn);
 
+				uci.set('passwall2', '@global[0]', 'node', MANUAL_NODE_SECTION);
 				uci.set('passwall2', '@global[0]', 'tcp_node', MANUAL_NODE_SECTION);
 				uci.set('passwall2', '@global[0]', 'udp_node', MANUAL_NODE_SECTION);
 				return;
