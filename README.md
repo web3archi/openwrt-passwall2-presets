@@ -47,3 +47,17 @@ repository are written in English. The README is the exception: it is
 maintained in English (this file) with a Russian translation kept in
 sync at [`README.ru.md`](README.ru.md). See `docs/BACKLOG.md` for the
 rationale.
+
+## Commits, hooks, and changelog
+
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
+  `<type>(<scope>): <subject>`, subject ≤ 72 characters. Types: `feat`, `fix`,
+  `docs`, `chore`, `refactor`, `test`, `perf`, `build`, `ci`, `revert`.
+  A `commit-msg` hook enforces this.
+- Hooks live in `.githooks/` and are installed into `.git/hooks/` by
+  `scripts/install-hooks.sh` (file copies, not `core.hooksPath`, so hooks
+  survive branch switches to trees that lack `.githooks/`). Run it after
+  cloning and re-run after editing anything in `.githooks/`; `--check`
+  reports drift without writing.
+- Notable changes are recorded in [`CHANGELOG.md`](CHANGELOG.md)
+  ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format).

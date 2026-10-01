@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Enforce Conventional Commits on the subject line.
+set -euo pipefail
+subject=$(head -1 "$1")
+case "$subject" in Merge*|Revert*) exit 0 ;; esac
+if ! printf '%s' "$subject" | grep -qE '^(feat|fix|docs|chore|refactor|test|perf|build|ci|revert)(\([a-z0-9._/-]+\))?!?: .{1,}$'; then
+  echo "REJECTED: commit subject is not a Conventional Commit." >&2
+  echo "  got:      $subject" >&2
+  echo "  expected: <type>(<scope>): <subject>" >&2
+  echo "  types:    feat fix docs chore refactor test perf build ci revert" >&2
+  exit 1
+fi
+if [ "${#subject}" -gt 72 ]; then
+  echo "REJECTED: subject longer than 72 characters (${#subject})." >&2
+  exit 1
+fi
