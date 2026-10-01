@@ -61,6 +61,10 @@ config preset 'best_node'
 	                                     # PassWall2's own native page).
 	# xray_dead_action lives on `config observer 'main'` above, not here -- see §3 note there.
 
+# Custom SOCKS5 exit — the Settings form needs this section to attach to;
+# settings.js also creates it on demand, listed here for fresh installs.
+config preset 'custom_socks'
+
 # Widget field visibility — controls which Overview rows also appear on the compact
 # standalone widget page (admin/services/passwall2-presets/widget). The full Overview
 # tab always shows every row regardless of these settings; this only trims the widget.

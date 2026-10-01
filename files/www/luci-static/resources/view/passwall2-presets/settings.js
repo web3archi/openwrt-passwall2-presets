@@ -194,6 +194,10 @@ return view.extend({
 		// The Balancing node keeps working and switching first hops; this node is
 		// only the last mile. All state lives in passwall2 (the node section is
 		// the single source of truth); these fields are virtual, like Strategy.
+		// The form needs a passwall2_presets section to attach to; create it on
+		// demand so the page also works where the config predates this feature.
+		if (!uci.get('passwall2_presets', 'custom_socks'))
+			uci.add('passwall2_presets', 'preset', 'custom_socks');
 		var sCustom = m.section(form.NamedSection, 'custom_socks', 'preset', null);
 		sCustom.addremove = false;
 
