@@ -404,7 +404,7 @@ return view.extend({
 			if (!mainNode)
 				return '';
 
-			if (tcpNode === MANUAL_NODE_SECTION &&
+			if (mainNode === MANUAL_NODE_SECTION &&
 			    uci.get('passwall2', MANUAL_SOCKS_SECTION, 'enabled') === '1')
 				return 'manual';
 
@@ -415,8 +415,6 @@ return view.extend({
 				(shunt && mainNode === shunt.section['.name'] &&
 					(shunt.section.default_node === CUSTOM_NODE_SECTION ||
 					 (bal && shunt.section.default_node === bal.section['.name']))));
-
-			var bal = findBalancerSection();
 
 			// The Balancing node keeps running underneath all of the above, so
 			// its live strategy is what is actually running — show it instead
