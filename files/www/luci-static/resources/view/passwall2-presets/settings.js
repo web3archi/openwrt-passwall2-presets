@@ -81,6 +81,7 @@
 
 var MANUAL_SOCKS_SECTION = 'pw2p_manual_socks';
 var MANUAL_NODE_SECTION = 'pw2p_manual_node';
+var CUSTOM_NODE_SECTION = 'pw2p_custom_socks_node';
 
 // A node counts as "special" (never offered as a Main/Backup pick, never treated as *the*
 // user-facing balancer target for display purposes beyond the balancer lookup itself) when
@@ -91,6 +92,8 @@ function isSpecialNode(n) {
 	if (n.protocol && n.protocol.charAt(0) === '_')
 		return true;
 	if (n['.name'] === MANUAL_NODE_SECTION)
+		return true;
+	if (n['.name'] === CUSTOM_NODE_SECTION)
 		return true;
 	return false;
 }
@@ -183,6 +186,128 @@ return view.extend({
 	render: function() {
 		var m = new form.Map('passwall2_presets', null,
 			_('Settings for PassWall2 Presets.'));
+		// --- Custom SOCKS5 (fixed final exit) ----------------------------------------
+		// Native PW2 chaining: our SOCKS node carries chain_proxy='1' plus
+		// preproxy_node=<balancing section>, so PW2 dials the SOCKS5 connection
+		// THROUGH whichever node the balancer has currently picked (util_xray.lua
+		// gen_outbound preproxy branch; a _balancing preproxy is supported there).
+		// The Balancing node keeps working and switching first hops; this node is
+		// only the last mile. All state lives in passwall2 (the node section is
+		// the single source of truth); these fields are virtual, like Strategy.
+		var sCustom = m.section(form.NamedSection, 'custom_socks', 'preset', null);
+		sCustom.addremove = false;
+
+		var customEnable = sCustom.option(form.Flag, 'custom_socks_enabled',
+			_('Route traffic through this SOCKS5'));
+		customEnable.rmempty = false;
+		customEnable.default = '0';
+		customEnable.description = _('When ticked and applied, PassWall2 exits through ' +
+			'this SOCKS5 server while the Balancing node keeps working as the first ' +
+			'hop: the SOCKS5 connection is dialed THROUGH whichever node the ' +
+			'Balancing pool has currently picked (native PassWall2 Preproxy ' +
+			'chaining, one layer). Unticking restores the Balancing node as the ' +
+			'exit. The checkbox mirrors what PassWall2 is actually doing right ' +
+			'now. Requires the Preset A Balancing node (see below).');
+		customEnable.cfgvalue = function() {
+			return (uci.get('passwall2', '@global[0]', 'tcp_node') ===
+				CUSTOM_NODE_SECTION) ? '1' : '0';
+		};
+		customEnable.validate = function(section_id, value) {
+			if (value !== '1')
+				return true;
+			var hostOpt = this.map.lookupOption('custom_socks_host', section_id)[0];
+			var portOpt = this.map.lookupOption('custom_socks_port', section_id)[0];
+			var host = hostOpt ? (hostOpt.formvalue(section_id) || '') : '';
+			var port = portOpt ? (portOpt.formvalue(section_id) || '') : '';
+			if (!host)
+				return _('Enter a SOCKS5 host before enabling this preset.');
+			if (!/^\d+$/.test(port) || +port < 1 || +port > 65535)
+				return _('Enter a valid SOCKS5 port (1-65535) before enabling ' +
+					'this preset.');
+			if (!findBalancerSection())
+				return _('No Balancing node found — this preset chains through it. ' +
+					'Add a Balancing node on PassWall2\'s own Node List page first.');
+			return true;
+		};
+		customEnable.write = function(section_id, value) {
+			if (value !== '1') {
+				var tcpNow = uci.get('passwall2', '@global[0]', 'tcp_node');
+				if (tcpNow === CUSTOM_NODE_SECTION) {
+					var bal = findBalancerSection();
+					if (bal) {
+						uci.set('passwall2', '@global[0]', 'tcp_node',
+							bal.section['.name']);
+						uci.set('passwall2', '@global[0]', 'udp_node',
+							bal.section['.name']);
+					}
+				}
+				return;
+			}
+			var hostOpt = this.map.lookupOption('custom_socks_host', section_id)[0];
+			var portOpt = this.map.lookupOption('custom_socks_port', section_id)[0];
+			var userOpt = this.map.lookupOption('custom_socks_user', section_id)[0];
+			var passOpt = this.map.lookupOption('custom_socks_pass', section_id)[0];
+			var host = (hostOpt && hostOpt.formvalue(section_id)) || '';
+			var port = (portOpt && portOpt.formvalue(section_id)) || '';
+			var user = (userOpt && userOpt.formvalue(section_id)) || '';
+			var pass = (passOpt && passOpt.formvalue(section_id)) || '';
+			var balName = findBalancerSection().section['.name'];
+
+			if (!uci.get('passwall2', CUSTOM_NODE_SECTION))
+				uci.add('passwall2', 'nodes', CUSTOM_NODE_SECTION);
+
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'type', 'Xray');
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'protocol', 'socks');
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'address', host);
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'port', port);
+			if (user)
+				uci.set('passwall2', CUSTOM_NODE_SECTION, 'username', user);
+			else
+				uci.unset('passwall2', CUSTOM_NODE_SECTION, 'username');
+			if (pass)
+				uci.set('passwall2', CUSTOM_NODE_SECTION, 'password', pass);
+			else
+				uci.unset('passwall2', CUSTOM_NODE_SECTION, 'password');
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'tls', '0');
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'transport', 'raw');
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'chain_proxy', '1');
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'preproxy_node', balName);
+			uci.set('passwall2', CUSTOM_NODE_SECTION, 'remarks',
+				_('PW2 Presets — Custom SOCKS5'));
+
+			uci.set('passwall2', '@global[0]', 'tcp_node', CUSTOM_NODE_SECTION);
+			uci.set('passwall2', '@global[0]', 'udp_node', CUSTOM_NODE_SECTION);
+		};
+
+		var customHost = sCustom.option(form.Value, 'custom_socks_host',
+			_('SOCKS5 host'));
+		customHost.cfgvalue = function() {
+			return uci.get('passwall2', CUSTOM_NODE_SECTION, 'address') || '';
+		};
+		customHost.write = function() {};
+
+		var customPort = sCustom.option(form.Value, 'custom_socks_port',
+			_('SOCKS5 port'));
+		customPort.datatype = 'port';
+		customPort.cfgvalue = function() {
+			return uci.get('passwall2', CUSTOM_NODE_SECTION, 'port') || '';
+		};
+		customPort.write = function() {};
+
+		var customUser = sCustom.option(form.Value, 'custom_socks_user',
+			_('Username (optional)'));
+		customUser.cfgvalue = function() {
+			return uci.get('passwall2', CUSTOM_NODE_SECTION, 'username') || '';
+		};
+		customUser.write = function() {};
+
+		var customPass = sCustom.option(form.Value, 'custom_socks_pass',
+			_('Password (optional)'));
+		customPass.password = true;
+		customPass.cfgvalue = function() {
+			return uci.get('passwall2', CUSTOM_NODE_SECTION, 'password') || '';
+		};
+		customPass.write = function() {};
 
 		// --- Preset A: "Best node" ------------------------------------------------------
 		var sBest = m.section(form.NamedSection, 'best_node', 'preset', null);
@@ -209,6 +334,21 @@ return view.extend({
 			if (tcpNode === MANUAL_NODE_SECTION &&
 			    uci.get('passwall2', MANUAL_SOCKS_SECTION, 'enabled') === '1')
 				return 'manual';
+
+			// Our Custom SOCKS5 node as Main: the Balancing node still runs
+			// underneath (preproxy), so keep showing its live strategy instead
+			// of a blank "not set via this addon".
+			if (tcpNode === CUSTOM_NODE_SECTION &&
+			    uci.get('passwall2', CUSTOM_NODE_SECTION, 'chain_proxy') === '1') {
+				var balC = findBalancerSection();
+				if (balC && uci.get('passwall2', CUSTOM_NODE_SECTION,
+				                   'preproxy_node') === balC.section['.name']) {
+					var bsC = balC.section.balancingStrategy;
+					if (bsC === 'leastPing') return 'fast';
+					if (bsC === 'leastLoad') return 'stable';
+				}
+				return '';
+			}
 
 			var bal = findBalancerSection();
 			if (bal && tcpNode === bal.section['.name']) {
@@ -443,6 +583,7 @@ return view.extend({
 			// Preset A above Widget, per the Settings tab layout this was designed against.
 			wrapInDetails('#cbi-passwall2_presets-best_node', _('Best node (Preset A)'), true);
 			wrapInDetails('#cbi-passwall2_presets-widget', _('Widget'), false);
+			wrapInDetails('#cbi-passwall2_presets-custom_socks', _('Custom SOCKS5'), true);
 
 			return mapEl;
 		});
