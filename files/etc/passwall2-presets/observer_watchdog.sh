@@ -60,13 +60,22 @@ KS_TABLE=psw2_ks
 # IPv6 delegation on wan6 is covered too. While armed, ALL lan→wan traffic is dropped,
 # including the shunt's nft-level direct paths — with PW2 down those paths ARE the
 # leak channel; silence over leak is the intended behaviour (SPEC §Armed semantics).
+# NOTE: no `comment` statement on the rule — this router's nft build does not support
+# rule comments (both statement orders verified failing live 2026-10-04); the table
+# name is the identifier. And arm never reports success on the table alone: the drop
+# RULE is verified in place before "armed" is logged (an empty chain once passed a
+# table-only check exactly that way).
 ks_armed() { nft list table inet ${KS_TABLE} >/dev/null 2>&1; }
 ks_arm() {
     ks_armed && return 0
     nft add table inet ${KS_TABLE} 2>/dev/null
     nft add chain inet ${KS_TABLE} ks_fwd '{ type filter hook forward priority -10; policy accept; }' 2>/dev/null
-    nft add rule inet ${KS_TABLE} ks_fwd iifname "${KS_LAN_IF}" oifname "${KS_WAN_IF}" counter drop comment 'psw2-presets killswitch: PW2 down or boot window' 2>/dev/null
-    ks_armed && log "KILLSWITCH: armed (${KS_LAN_IF} -> ${KS_WAN_IF} drop, table inet/${KS_TABLE})"
+    nft add rule inet ${KS_TABLE} ks_fwd iifname "${KS_LAN_IF}" oifname "${KS_WAN_IF}" counter drop 2>/dev/null
+    if nft list chain inet ${KS_TABLE} ks_fwd 2>/dev/null | grep -q ' drop'; then
+        log "KILLSWITCH: armed (${KS_LAN_IF} -> ${KS_WAN_IF} drop, table inet/${KS_TABLE})"
+    else
+        log "KILLSWITCH: ARM FAILED — drop rule did not land (see nft errors above)"
+    fi
     return 0
 }
 ks_disarm() {
