@@ -1,0 +1,26 @@
+#!/bin/sh /etc/rc.common
+# passwall2-presets-killswitch — boots the LAN→WAN kill-switch into its ARMED state
+# and (re)installs the Observer's cron lines. All real logic lives in
+# /etc/passwall2-presets/observer_watchdog.sh (--arm / --ensure-cron / --disarm /
+# --status); this wrapper only fixes the boot order: START=25 runs after firewall4
+# (START=19, so nft modules and fw4 chains exist) and long before passwall2
+# (START=99), so from ~25 boot units onward a dead or absent PW2 cannot leak LAN
+# traffic out the WAN interface. The Observer lifts the wall on its first healthy
+# pass (xray alive + Probe A ok; ~15s cadence). See docs/SPEC-killswitch.md for the
+# design and the two accepted residual windows.
+#
+# stop() = disarm on purpose: an explicit `/etc/init.d/passwall2-presets-killswitch
+# stop` by the operator is the documented escape hatch that lifts the wall on demand.
+
+START=25
+
+OBS=/etc/passwall2-presets/observer_watchdog.sh
+
+start() {
+    "$OBS" --arm
+    "$OBS" --ensure-cron
+}
+
+stop() {
+    "$OBS" --disarm
+}

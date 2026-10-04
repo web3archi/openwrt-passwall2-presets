@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 2026-10-04 — Kill-switch (no direct leak while PassWall2 is down) + observer hardening
+
+#### Added
+- `feat(killswitch)`: LAN→WAN nft drop armed at boot (init script `passwall2-presets-killswitch`, START=25) and by the observer whenever the chain is unhealthy; lifted only on a healthy xray + Probe A. Closes the "PW2 rules absent" leak windows (boot, crash, watchdog restart) that exposed the provider IP on 2026-10-03. Lock-free CLI `--arm|--disarm|--status|--ensure-cron`; `killswitch` config section (defaults ON when absent).
+- `feat(observer)`: ~15s cron cadence (four `sleep`-offset lines) with idempotent `--ensure-cron` self-heal installed by the init script at every boot (the 2026-10-03 LuCI Scheduled-Tasks wipe class); the status JSON gains a `killswitch` field (UI row deferred, BACKLOG P14).
+- `docs`: `SPEC-killswitch.md` — design, armed semantics, the two accepted residual windows, deploy/test protocol.
+
+#### Fixed
+- `fix(observer)`: the status file is written via `${STATUS_FILE}.tmp` + atomic `mv` — the LuCI Overview page no longer intermittently flashes "No status data yet" when its 5s poll lands inside the old truncate-then-write window.
+- `fix(docs)`: the observer header comment referenced the stale `files/etc/crontabs/root-observer-watchdog` path; now points at `files/etc/passwall2-presets/crontab.snippet`.
 ## [v0.1.0] - 2026-10-01
 
 ### 2026-10-01 — Settings: Custom SOCKS5 preset

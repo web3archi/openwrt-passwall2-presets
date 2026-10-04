@@ -7,8 +7,10 @@
 # P7 — Xray is never added to monitor.sh's own respawn watch list under a normal PW2
 # start, so this fills a real gap rather than duplicating something that already works).
 #
-# Intended to run every ~30s via two cron lines 30s apart (crond's native granularity is
-# 1 minute) — see files/etc/crontabs/root-observer-watchdog in this repo.
+# Intended to run every ~15s via four cron lines offset by `sleep` (crond's native
+# granularity is 1 minute) — see files/etc/passwall2-presets/crontab.snippet in this
+# repo. Also owns the LAN→WAN kill-switch (docs/SPEC-killswitch.md): boot and any
+# unhealthy chain put an nft drop on lan→wan; only a healthy chain lifts it.
 #
 # No PW2 entity names (nodes/subscriptions/presets) are ever hardcoded here: the SOCKS
 # port and the active balancer's node pool are discovered live from PW2's own UCI state
@@ -43,6 +45,67 @@ log() {
         tail -c "$LOG_MAX_BYTES" "$LOG_FILE" > "${LOG_FILE}.tmp" 2>/dev/null && mv "${LOG_FILE}.tmp" "$LOG_FILE"
     fi
 }
+
+# ---- kill-switch (docs/SPEC-killswitch.md) ----
+# Config lives on the `killswitch` section; defaults keep the feature ON even when the
+# section is missing, so a config loss cannot silently turn the kill-switch off.
+ks_uci() { uci -q get "$1" 2>/dev/null; }
+KS_ENABLED=$(ks_uci ${PKG}.killswitch.enabled); KS_ENABLED=${KS_ENABLED:-1}
+KS_LAN_IF=$(ks_uci ${PKG}.killswitch.lan_if); KS_LAN_IF=${KS_LAN_IF:-br-lan}
+KS_WAN_IF=$(ks_uci ${PKG}.killswitch.wan_if); KS_WAN_IF=${KS_WAN_IF:-wan}
+KS_TABLE=psw2_ks
+
+# Arm: a dedicated nft table, forward-chain drop at priority -10 (ahead of fw4's
+# filter chain, priority 0). Family inet = dual-stack by construction, so a future
+# IPv6 delegation on wan6 is covered too. While armed, ALL lan→wan traffic is dropped,
+# including the shunt's nft-level direct paths — with PW2 down those paths ARE the
+# leak channel; silence over leak is the intended behaviour (SPEC §Armed semantics).
+ks_armed() { nft list table inet ${KS_TABLE} >/dev/null 2>&1; }
+ks_arm() {
+    ks_armed && return 0
+    nft add table inet ${KS_TABLE} 2>/dev/null
+    nft add chain inet ${KS_TABLE} ks_fwd '{ type filter hook forward priority -10; policy accept; }' 2>/dev/null
+    nft add rule inet ${KS_TABLE} ks_fwd iifname "${KS_LAN_IF}" oifname "${KS_WAN_IF}" counter drop comment 'psw2-presets killswitch: PW2 down or boot window' 2>/dev/null
+    ks_armed && log "KILLSWITCH: armed (${KS_LAN_IF} -> ${KS_WAN_IF} drop, table inet/${KS_TABLE})"
+    return 0
+}
+ks_disarm() {
+    ks_armed || return 0
+    nft delete table inet ${KS_TABLE} 2>/dev/null
+    log "KILLSWITCH: disarmed"
+    return 0
+}
+
+# Idempotent observer-cron install. The 2026-10-03 router incident: a LuCI Scheduled
+# Tasks save zeroed /etc/crontabs/root and the observer silently died for 12h. This
+# preserves all foreign lines, normalizes ours to the canonical four (15s cadence,
+# operator decision 2026-10-04), then bumps the DIRECTORY mtime — busybox crond
+# rescans only when the crontab dir mtime changes.
+ensure_cron() {
+    CRON_FILE=/etc/crontabs/root
+    CRON_TMP=${CRON_FILE}.psw2p-new
+    [ -f "$CRON_FILE" ] || : > "$CRON_FILE"
+    grep -v 'passwall2-presets/observer_watchdog.sh' "$CRON_FILE" > "$CRON_TMP" 2>/dev/null
+    printf '%s\n' \
+        '* * * * * /etc/passwall2-presets/observer_watchdog.sh' \
+        '* * * * * sleep 15; /etc/passwall2-presets/observer_watchdog.sh' \
+        '* * * * * sleep 30; /etc/passwall2-presets/observer_watchdog.sh' \
+        '* * * * * sleep 45; /etc/passwall2-presets/observer_watchdog.sh' >> "$CRON_TMP"
+    mv -f "$CRON_TMP" "$CRON_FILE"
+    log "KILLSWITCH: observer cron lines ensured (15s cadence)"
+    touch /etc/crontabs
+    return 0
+}
+
+# Lock-free operator CLI. The init script calls --arm and --ensure-cron at every
+# boot; --disarm is the documented escape hatch; --status prints the wall state.
+# These run before the lock and before the observer-enabled gate on purpose.
+case "${1:-}" in
+    --arm)         [ "$KS_ENABLED" = "1" ] && ks_arm; exit 0 ;;
+    --disarm)      ks_disarm; exit 0 ;;
+    --status)      ks_armed && echo armed || echo disarmed; exit 0 ;;
+    --ensure-cron) ensure_cron; exit 0 ;;
+esac
 
 # ---- locking: atomic mkdir, with staleness recovery ----
 acquire_lock() {
@@ -181,6 +244,7 @@ if [ "$WATCHDOG_ENABLED" = "1" ]; then
                 fi
                 if [ "$cooldown_ok" = "1" ]; then
                     log "WATCHDOG: down ${age}s (grace ${GRACE_PERIOD}s expired) -> /etc/init.d/passwall2 restart"
+                    [ "$KS_ENABLED" = "1" ] && ks_arm   # behind the wall BEFORE PW2 tears its nft rules down
                     LAST_RESTART_AT=$(now)
                     /etc/init.d/passwall2 restart >/dev/null 2>&1 &
                     STATUS="restarting"
@@ -280,11 +344,31 @@ fi
 # free-form text from the node config, e.g. flag emoji + a Russian city/country name.
 json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
+# ---- kill-switch follow-through: the ONLY place the wall is lifted ----
+# Health is judged on the chain itself (xray alive AND Probe A ok — or Probe A not
+# configured at all), NOT on the watchdog STATUS string, so protection does not
+# depend on watchdog_enabled. While PW2's own nft redirects exist, dead nodes
+# already fail inside xray (no leak); the drop only matters in "PW2 rules absent"
+# windows: boot, crashes, and the watchdog restart armed for above.
+KS_STATE="disabled"
+if [ "$KS_ENABLED" = "1" ]; then
+    ks_healthy=0
+    [ "$XRAY_ALIVE" = "1" ] && { [ "$PROBE_A_OK" = "1" ] || [ "$PROBE_A_ENABLED" != "1" ]; } && ks_healthy=1
+    if [ "$ks_healthy" = "1" ]; then
+        ks_disarm
+        KS_STATE="disarmed"
+    else
+        ks_arm
+        KS_STATE="armed"
+    fi
+fi
+
 # ================= Write status file for the Overview page / widget ===================
-cat > "$STATUS_FILE" <<EOF
+cat > "${STATUS_FILE}.tmp" <<EOF
 {
   "updated_at": $(now),
   "watchdog_status": "${STATUS}",
+  "killswitch": "${KS_STATE}",
   "probe_a": {"enabled": ${PROBE_A_ENABLED}, "ok": ${PROBE_A_OK}, "ip": "${PROBE_A_IP}", "ip_since": ${IP_CHANGED_AT:-null}, "node_remarks": "$(json_escape "$PROBE_A_NODE_REMARKS")"},
   "probe_b": ${PROBE_B_JSON},
   "probe_c": {"enabled": ${PROBE_C_ENABLED}, "ip": "${PROBE_C_IP}"},
@@ -293,6 +377,9 @@ cat > "$STATUS_FILE" <<EOF
   "nodes": {"active_balancer": "${ACTIVE_BALANCER}", "total_configured": "${TOTAL_NODES}"}
 }
 EOF
+mv -f "${STATUS_FILE}.tmp" "$STATUS_FILE"   # atomic rename on tmpfs: the Overview page
+                                            # never reads a half-written file (kills the
+                                            # intermittent "No status data yet" flicker)
 
 [ "$STATUS" != "$LAST_STATUS" ] && [ "$LAST_STATUS" != "unknown" ] && log "STATUS ${LAST_STATUS} -> ${STATUS}"
 

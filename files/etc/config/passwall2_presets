@@ -81,3 +81,13 @@ config widget 'widget'
 	option show_last_updated '1'
 	option show_configured_nodes '1'
 	option show_active_balancer '1'
+
+# Kill-switch — no-leak guarantee for "PW2 rules absent" windows (boot, crashes,
+# watchdog restarts): an nft forward drop on lan→wan, armed at boot (init script
+# START=25) and by the observer whenever the chain is unhealthy; lifted only on a
+# healthy xray + Probe A. See docs/SPEC-killswitch.md. Defaults keep it ON even if
+# this section is ever lost — an absent section never disables the kill-switch.
+config killswitch 'main'
+	option enabled '1'
+	option lan_if 'br-lan'
+	option wan_if 'wan'

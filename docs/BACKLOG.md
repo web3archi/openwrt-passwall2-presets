@@ -1189,3 +1189,8 @@ flash/overlay.
 **Status:** question captured, zero investigation done yet. Needs its own
 research pass (ideally outside this repo) before any of P12.2's Shunt-preset UI
 work can assume "full lists" are actually a viable option on this hardware.
+
+## P14 — Kill-switch follow-ups (2026-10-04)
+- Overview/Widget row for the new `killswitch` status field (data already lands in observer_watchdog.status; UI row deferred until the feature is field-proven).
+- Verify PW2's `fallback_node` semantics once: when the whole balancing pool AND the fallback node are down, confirm PW2 fails connections rather than falling back to direct (expected; only `fallback_node='_direct'` leaks by design). Note the finding in SPEC-killswitch.md.
+- Residuals accepted by the operator (2026-10-04): up to ~15s arming delay after an UNSCHEDULED PW2 crash; boot sliver before init START=25 (WAN has no address there, practically unreachable); armed state drops RU-direct too (silence over leak). A resident watcher daemon was proposed and declined (moving parts > threat).

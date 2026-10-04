@@ -1,5 +1,11 @@
-# Not auto-installed. Append these two lines to /etc/crontabs/root on the router, then
-# `/etc/init.d/cron restart`. crond's native granularity is 1 minute, so two lines offset
-# by `sleep 30` give ~30s effective polling without a persistent daemon process.
+# Not installed by hand any more: `observer_watchdog.sh --ensure-cron` (called by the
+# killswitch init script at every boot, safe to run at any time) installs these lines
+# idempotently, preserves foreign entries, and bumps the crontab dir mtime so busybox
+# crond rescans without a restart. Manual append still works if you prefer.
+# crond's native granularity is 1 minute, so four lines offset by `sleep` give ~15s
+# effective polling (operator decision 2026-10-04: 15s, not 30s — the kill-switch's
+# arm delay is bounded by this cadence) without a persistent daemon process.
 * * * * * /etc/passwall2-presets/observer_watchdog.sh
+* * * * * sleep 15; /etc/passwall2-presets/observer_watchdog.sh
 * * * * * sleep 30; /etc/passwall2-presets/observer_watchdog.sh
+* * * * * sleep 45; /etc/passwall2-presets/observer_watchdog.sh
