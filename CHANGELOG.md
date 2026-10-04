@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-10-04 — Kill-switch: Settings section, arming window, first-cut fixes
+
+#### Added
+- `feat(killswitch)`: Settings page gains a collapsible Kill-switch section — an enable checkbox with an honest annotation (what the wall covers and the accepted leak residuals) and an Arming window field (15–60 s, default 15; the observer's polling cadence, realized as sleep-offset cron lines and regenerated on Save & Apply via ucitrack → the killswitch init's `reload()`; the wall state itself is never flashed by an apply). The widget-field annotations' stale "about every 30 seconds" strings updated to the window wording.
+- Field acceptance the same day: an accidental Save & Apply restarted PassWall2 (11:59 UTC); the log shows `KILLSWITCH: armed` at 11:59:01, the watchdog's own restart behind the wall at 12:00:01, `disarmed` at 12:01:33 — 2.5 minutes of silence over leak on a live network (uptime continuous; the crash-class scenario, not the boot test).
+
+#### Fixed
+- `fix(observer)`: the drop rule carries no `comment` statement — this router's nft rejects rule comments (both statement orders fail with a syntax error, verified live); `ks_arm` now re-reads the chain and logs `ARM FAILED` if the rule did not land, instead of logging armed on a table-only check.
+- `fix(config)`: the template's killswitch section is named `killswitch` (the first cut shipped `main`, mismatching observer reads and the Settings NamedSection; caught before any fresh install used it).
+
 
 ### 2026-10-04 — Kill-switch (no direct leak while PassWall2 is down) + observer hardening
 

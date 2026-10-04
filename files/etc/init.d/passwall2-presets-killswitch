@@ -6,11 +6,14 @@
 # (START=19, so nft modules and fw4 chains exist) and long before passwall2
 # (START=99), so from ~25 boot units onward a dead or absent PW2 cannot leak LAN
 # traffic out the WAN interface. The Observer lifts the wall on its first healthy
-# pass (xray alive + Probe A ok; ~15s cadence). See docs/SPEC-killswitch.md for the
-# design and the two accepted residual windows.
+# pass (xray alive + Probe A ok; once per arming window, 15 s default).
+# See docs/SPEC-killswitch.md for the design and the two accepted residual windows.
 #
-# stop() = disarm on purpose: an explicit `/etc/init.d/passwall2-presets-killswitch
-# stop` by the operator is the documented escape hatch that lifts the wall on demand.
+# start()  — boot path: arm + ensure the cron lines.
+# stop()   — explicit operator stop = the documented escape hatch that lifts the wall.
+# reload() — the ucitrack trigger target for Save & Apply on passwall2_presets:
+#            refresh the cron lines (the arming window may have changed) WITHOUT
+#            touching the wall state — the observer alone owns arm/disarm.
 
 START=25
 
@@ -23,4 +26,8 @@ start() {
 
 stop() {
     "$OBS" --disarm
+}
+
+reload() {
+    "$OBS" --ensure-cron
 }

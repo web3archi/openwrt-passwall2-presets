@@ -598,7 +598,7 @@ return view.extend({
 			'/etc/config/passwall2_presets.'));
 		addFlag('show_xray_process', _('Xray process'),
 			_('Whether the Xray core process is actually running, checked live by the ' +
-			'watchdog on every pass (about once per arming window, 15 s by default). Running alone does not ' +
+			'watchdog on every pass (about every 30 seconds). Running alone does not ' +
 			'prove traffic flows — the probes below answer that.'));
 		addFlag('show_probe_a', _('Probe A — exit IP via proxy'),
 			_('The public exit IP your traffic presents to the outside world while ' +

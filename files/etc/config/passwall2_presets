@@ -87,7 +87,13 @@ config widget 'widget'
 # START=25) and by the observer whenever the chain is unhealthy; lifted only on a
 # healthy xray + Probe A. See docs/SPEC-killswitch.md. Defaults keep it ON even if
 # this section is ever lost — an absent section never disables the kill-switch.
-config killswitch 'main'
+# The section NAME is 'killswitch' (not 'main'): it must match observer_watchdog.sh's
+# reads and the Settings page's NamedSection. The first cut (pre-push review catch,
+# 2026-10-04) briefly shipped 'main' here; no install ever used it.
+# Managed from Settings > Kill-switch; the window is applied by Save & Apply via
+# ucitrack → the init script's reload() → --ensure-cron.
+config killswitch 'killswitch'
 	option enabled '1'
+	option window '15'
 	option lan_if 'br-lan'
 	option wan_if 'wan'

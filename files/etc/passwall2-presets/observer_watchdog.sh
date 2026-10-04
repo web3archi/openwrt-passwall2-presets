@@ -7,10 +7,11 @@
 # P7 — Xray is never added to monitor.sh's own respawn watch list under a normal PW2
 # start, so this fills a real gap rather than duplicating something that already works).
 #
-# Intended to run every ~15s via four cron lines offset by `sleep` (crond's native
-# granularity is 1 minute) — see files/etc/passwall2-presets/crontab.snippet in this
-# repo. Also owns the LAN→WAN kill-switch (docs/SPEC-killswitch.md): boot and any
-# unhealthy chain put an nft drop on lan→wan; only a healthy chain lifts it.
+# Intended to run about once per arming window (15 s by default; the Kill-switch section
+# on the Settings page exposes the window) via sleep-offset cron lines — see
+# files/etc/passwall2-presets/crontab.snippet. Also owns the LAN→WAN kill-switch
+# (docs/SPEC-killswitch.md): boot and any unhealthy chain put an nft drop on lan→wan;
+# only a healthy chain lifts it.
 #
 # No PW2 entity names (nodes/subscriptions/presets) are ever hardcoded here: the SOCKS
 # port and the active balancer's node pool are discovered live from PW2's own UCI state
@@ -54,6 +55,12 @@ KS_ENABLED=$(ks_uci ${PKG}.killswitch.enabled); KS_ENABLED=${KS_ENABLED:-1}
 KS_LAN_IF=$(ks_uci ${PKG}.killswitch.lan_if); KS_LAN_IF=${KS_LAN_IF:-br-lan}
 KS_WAN_IF=$(ks_uci ${PKG}.killswitch.wan_if); KS_WAN_IF=${KS_WAN_IF:-wan}
 KS_TABLE=psw2_ks
+# Arming window: the observer's polling period, 15..60 s (Settings page field; the
+# Settings Save & Apply regenerates the cron lines via the init's reload()).
+KS_WINDOW=$(ks_uci ${PKG}.killswitch.window)
+case "$KS_WINDOW" in ''|*[!0-9]*) KS_WINDOW=15 ;; esac
+[ "$KS_WINDOW" -lt 15 ] && KS_WINDOW=15
+[ "$KS_WINDOW" -gt 60 ] && KS_WINDOW=60
 
 # Arm: a dedicated nft table, forward-chain drop at priority -10 (ahead of fw4's
 # filter chain, priority 0). Family inet = dual-stack by construction, so a future
@@ -87,28 +94,34 @@ ks_disarm() {
 
 # Idempotent observer-cron install. The 2026-10-03 router incident: a LuCI Scheduled
 # Tasks save zeroed /etc/crontabs/root and the observer silently died for 12h. This
-# preserves all foreign lines, normalizes ours to the canonical four (15s cadence,
+# preserves all foreign lines, normalizes ours to the configured window (15 s default,
 # operator decision 2026-10-04), then bumps the DIRECTORY mtime — busybox crond
-# rescans only when the crontab dir mtime changes.
+# rescans only when the crontab dir mtime changes. Called at boot by the init script
+# and on every Save & Apply of passwall2_presets via the init's reload() (ucitrack).
 ensure_cron() {
     CRON_FILE=/etc/crontabs/root
     CRON_TMP=${CRON_FILE}.psw2p-new
     [ -f "$CRON_FILE" ] || : > "$CRON_FILE"
     grep -v 'passwall2-presets/observer_watchdog.sh' "$CRON_FILE" > "$CRON_TMP" 2>/dev/null
-    printf '%s\n' \
-        '* * * * * /etc/passwall2-presets/observer_watchdog.sh' \
-        '* * * * * sleep 15; /etc/passwall2-presets/observer_watchdog.sh' \
-        '* * * * * sleep 30; /etc/passwall2-presets/observer_watchdog.sh' \
-        '* * * * * sleep 45; /etc/passwall2-presets/observer_watchdog.sh' >> "$CRON_TMP"
+    o=0
+    while [ "$o" -lt 60 ]; do
+        if [ "$o" -eq 0 ]; then
+            printf '%s\n' '* * * * * /etc/passwall2-presets/observer_watchdog.sh' >> "$CRON_TMP"
+        else
+            printf '%s\n' "* * * * * sleep ${o}; /etc/passwall2-presets/observer_watchdog.sh" >> "$CRON_TMP"
+        fi
+        o=$((o + KS_WINDOW))
+    done
     mv -f "$CRON_TMP" "$CRON_FILE"
-    log "KILLSWITCH: observer cron lines ensured (15s cadence)"
+    log "KILLSWITCH: observer cron lines ensured (window ${KS_WINDOW}s)"
     touch /etc/crontabs
     return 0
 }
 
 # Lock-free operator CLI. The init script calls --arm and --ensure-cron at every
-# boot; --disarm is the documented escape hatch; --status prints the wall state.
-# These run before the lock and before the observer-enabled gate on purpose.
+# boot and --ensure-cron again on reload (Save & Apply); --disarm is the documented
+# escape hatch; --status prints the wall state. These run before the lock and
+# before the observer-enabled gate on purpose.
 case "${1:-}" in
     --arm)         [ "$KS_ENABLED" = "1" ] && ks_arm; exit 0 ;;
     --disarm)      ks_disarm; exit 0 ;;
