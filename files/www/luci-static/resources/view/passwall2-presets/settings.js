@@ -1,5 +1,6 @@
 'use strict';
 'require form';
+'require ui';
 'require view';
 'require uci';
 
@@ -240,24 +241,6 @@ return view.extend({
 				return '1';
 			return '0';
 		};
-		customEnable.validate = function(section_id, value) {
-			var liveActive = (this.cfgvalue(section_id) === '1');
-			if (value !== '1' || liveActive)
-				return true;
-			var hostOpt = this.map.lookupOption('custom_socks_host', section_id)[0];
-			var portOpt = this.map.lookupOption('custom_socks_port', section_id)[0];
-			var host = hostOpt ? (hostOpt.formvalue(section_id) || '') : '';
-			var port = portOpt ? (portOpt.formvalue(section_id) || '') : '';
-			if (!host)
-				return _('Enter a SOCKS5 host before enabling this preset.');
-			if (!/^\d+$/.test(port) || +port < 1 || +port > 65535)
-				return _('Enter a valid SOCKS5 port (1-65535) before enabling ' +
-					'this preset.');
-			if (!findBalancerSection())
-				return _('No Balancing node found — this preset chains through it. ' +
-					'Add a Balancing node on PassWall2\'s own Node List page first.');
-			return true;
-		};
 		customEnable.write = function(section_id, value) {
 			var shunt = findShuntSection();
 			var bal = findBalancerSection();
@@ -298,6 +281,14 @@ return view.extend({
 			var port = (portOpt && portOpt.formvalue(section_id)) || '';
 			var user = (userOpt && userOpt.formvalue(section_id)) || '';
 			var pass = (passOpt && passOpt.formvalue(section_id)) || '';
+
+			if (!host || !/^\d+$/.test(port) || +port < 1 || +port > 65535 ||
+			    !findBalancerSection()) {
+				ui.addNotification(null, E('p', _('SOCKS5 host/port missing or no ' +
+					'Balancing node - the preset was NOT enabled. Fill the host and ' +
+					'port, then tick the checkbox again.')), 'error');
+				return;
+			}
 
 			if (!uci.get('passwall2', CUSTOM_NODE_SECTION))
 				uci.add('passwall2', 'nodes', CUSTOM_NODE_SECTION);
