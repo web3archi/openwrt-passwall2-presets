@@ -241,7 +241,8 @@ return view.extend({
 			return '0';
 		};
 		customEnable.validate = function(section_id, value) {
-			if (value !== '1')
+			var liveActive = (this.cfgvalue(section_id) === '1');
+			if (value !== '1' || liveActive)
 				return true;
 			var hostOpt = this.map.lookupOption('custom_socks_host', section_id)[0];
 			var portOpt = this.map.lookupOption('custom_socks_port', section_id)[0];
