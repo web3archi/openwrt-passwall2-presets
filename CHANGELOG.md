@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-11-23 — Proposal slate pre-ticks (предрассаживание)
+
+- `feat(luci)`: the Pool manager checkboxes now PRE-TICK the suggested slate — the top cutoff-qualified nodes of the rolling 24h census window (operator mandate: "after each round, propose the new best list") — instead of mirroring the current pool. A banner states the diff vs the live pool (+new / −dropped) because any Save & Apply on the page seats the slate; live-pool rows outside the slate render with a `· [current pool]` marker; zero qualified data keeps the live pool pre-ticked. `SPEC-pool-manager.md` §4 amended (proposal-slate semantics). Still passive: nothing seats without the operator's Save & Apply.
+
 ### 2026-11-23 — Pool manager live verification (60-probe chain measurement)
 
 - `docs`: first 60-probe latency measurement through the live chain (shunt → Balancing → the operator morning pool-8; fallback = "Авто - LTE", operator decision), probed from the router through the same SOCKS chain LAN clients ride: success 59/60 (98.3%, one 8s timeout, **zero total outages** — the 2026-11-22 collapse class did not reproduce under this pool), median 0.79s / p90 1.88s / max 3.36s, spikes ≥1.5s in ~17% of probes. Exit-IP distribution across five nodes (19/15/12/9/2) — leastLoad rotation working as designed; per-exit medians 0.71–0.97s: no single bad node, the spikes are per-request provider variance (the same provider-flap class as 2026-11-22), not node-localized. Versus the 2026-11-22 pool-10 baseline: no total outage (vs one ~5-minute one), median up 0.35→0.79s — the price of rotation across five exits. No data-forced reseat; `expected` 4→2 concentration stays a one-restart operator option if a lower median is worth fewer active exits.

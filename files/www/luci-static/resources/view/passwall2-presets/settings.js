@@ -476,6 +476,13 @@ return view.extend({
 		var currentFallback = balName ? uci.get('passwall2', balName, 'fallback_node') : null;
 		var poolStats = parsePoolStats(POOL_STATS_RAW, Math.floor(Date.now() / 1000));
 		var ranked = rankPool(poolStats);
+		// Proposal slate (operator mandate 2026-11-23): the checkboxes PRE-TICK the
+		// best cutoff-qualified nodes of the rolling 24h census window — a proposal to
+		// review, not a mirror of the current pool. Seating still happens ONLY on
+		// Save & Apply (passive mandate unchanged). Zero qualified data -> the live
+		// pool stays pre-ticked (no surprise empty reseat).
+		var proposedSids = ranked.map(function(r) { return r.sid; });
+		var proposalActive = proposedSids.length > 0;
 		var poolRows = ranked.slice(0);
 		// Currently-seated nodes outside the qualified suggestion list stay visible (marked)
 		// so a Save can never silently drop a seat the operator cannot see (SPEC §4).
@@ -494,6 +501,28 @@ return view.extend({
 			uci.add('passwall2_presets', 'pool', 'pool');
 		var sPool = m.section(form.NamedSection, 'pool', 'pool', null);
 		sPool.addremove = false;
+
+		// Banner: what the pre-ticks mean vs the live pool. Explicit because ANY Save
+		// & Apply on this page seats the slate (a widget-flag change included) — the
+		// banner states the diff so the review is informed, never surprised.
+		var pn = sPool.option(form.DummyValue, 'proposal_note', _('Suggested slate'));
+		pn.cfgvalue = function() {
+			var add = 0, rem = 0, i;
+			for (i = 0; i < proposedSids.length; i++)
+				if ((currentPool || []).indexOf(proposedSids[i]) < 0)
+					add++;
+			for (i = 0; i < (currentPool || []).length; i++)
+				if (proposedSids.indexOf(currentPool[i]) < 0)
+					rem++;
+			var t = proposalActive
+				? _('Pre-ticked: the best ' + proposedSids.length + ' nodes of the last 24h census window (cutoff-qualified, cap 13). ')
+				: _('No qualified slate yet — the live PassWall2 pool is kept pre-ticked. ');
+			if (proposalActive && (add || rem))
+				t += _('Applying seats +' + add + ' new and drops -' + rem + ' of the current pool. Review the ticks, then Save & Apply.');
+			else
+				t += _('Nothing seats until you Save & Apply.');
+			return t;
+		};
 
 		function fmtMs(v) { return (v == null) ? '—' : (v + ' ms'); }
 		function fmtAgo(s) { return (s == null) ? '—' : (Math.floor(s / 60) + ' m'); }
@@ -539,10 +568,16 @@ return view.extend({
 			var title = (idx + 1) + '. ' + (r.remarks || r.sid) +
 				(r.st ? ' — p50 ' + fmtMs(r.st.p50) + ' · ' + r.st.success + '% · streak ' + r.st.streak
 						: ' — awaiting census data');
+			if ((currentPool || []).indexOf(r.sid) >= 0 && proposedSids.indexOf(r.sid) < 0)
+				title += ' · [current pool]';
 			var o = sPool.option(form.Flag, 'seat_' + r.sid, title);
 			o.rmempty = false;
 			o.default = '0';
-			o.cfgvalue = function() { return (currentPool || []).indexOf(r.sid) >= 0 ? '1' : '0'; };
+			o.cfgvalue = function() {
+				if (proposalActive)
+					return proposedSids.indexOf(r.sid) >= 0 ? '1' : '0';
+				return (currentPool || []).indexOf(r.sid) >= 0 ? '1' : '0';
+			};
 			o.write = function() {};   // never persisted: seating lands in passwall2 below
 			o.description = r.st ?
 				_('Attempts (24h): ' + r.st.attempts + ' · success: ' + r.st.success + '%' +

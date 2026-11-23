@@ -102,6 +102,15 @@ own leastLoad/fallback runtime, not us.
   `→ fallback` (seat as THE fallback). Checkboxes are UI-time and write-time mutex:
   ticking fallback unticks balancer for that row, and **fallback is at most ONE row**
   (ticking a second fallback unticks the first — PW2 schema holds one sid).
+- **Proposal slate** (operator mandate 2026-11-23: "предрассаживание — после каждого круга
+  предложить новый список"): the checkboxes PRE-TICK the suggested slate — the top
+  cutoff-qualified nodes of the rolling 24h census window — instead of mirroring the
+  current pool. A banner states the diff vs the live pool (+new / −dropped) because ANY
+  Save & Apply on the Settings page seats the slate; rows seated in PW2 but outside the
+  slate stay visible with a `· [current pool]` marker. Zero qualified data → the live
+  pool stays pre-ticked (no surprise empty reseat). Seating still happens ONLY on the
+  operator's Save & Apply — the pre-ticks are a proposal to review, not an action; the
+  passive mandate is unchanged.
 - **Pool cap = 13, a constant** (operator resolution 2, 2026-11-23: not a UCI field, no
   ceiling slider): the suggestion list shows at most 13 rows — the best-score
   cutoff-qualified nodes, pre-ticked with the current pool membership. **13 is a
