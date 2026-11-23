@@ -170,6 +170,18 @@ census_run() {
     [ -z "$NEXT" ] && NEXT="$1"
     echo "$NEXT" > "${STATE_DIR}/census_cursor.tmp" && mv -f "${STATE_DIR}/census_cursor.tmp" "${STATE_DIR}/census_cursor"
     local RES CODE MS OK NOW CUT
+    # PW2 upstream bug workaround (verified live 2026-11-23): get_new_port() memoizes
+    # EVERY handed-out port in /tmp/etc/passwall2/var (get_port_<p>) and never releases
+    # it; netstat is the real occupancy check, so the memo only ever blocks REUSE of the
+    # short-lived temp socks instances this census leaves behind. At one probe per minute
+    # the allocation walk crawled +1 port per minute (251 dead entries observed) until it
+    # exceeded the probe timeout and test.sh hung (empty census codes 19:22-21:44).
+    # Clean the stale get_port_* memo before each probe; every other cache key stays.
+    if [ -s /tmp/etc/passwall2/var ]; then
+        grep -v "^get_port_" /tmp/etc/passwall2/var > /tmp/etc/passwall2/var.pw2p && \
+            mv -f /tmp/etc/passwall2/var.pw2p /tmp/etc/passwall2/var
+    fi
+
     RES=$(timeout 30 sh /usr/share/passwall2/test.sh url_test_node "$NEXT" 2>/dev/null)
     CODE=${RES%%:*}
     MS=${RES#*:}

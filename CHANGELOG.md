@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-11-23 - Census hang: PW2 get_new_port memo exhaustion (upstream bug workaround)
+
+- `fix(pool)`: census_run now cleans the stale `get_port_*` memo lines from `/tmp/etc/passwall2/var` before each probe. Root cause of the evening census hang (empty probe codes 19:22-21:44): PW2 own `get_new_port()` memoizes EVERY handed-out port and never releases it - netstat is the real occupancy check, so the memo only ever blocks reuse of this census own short-lived temp socks instances. At one probe per minute the allocation walk crawled +1 port per minute (251 dead entries observed) until it exceeded the probe timeout and `test.sh` hung; manual retest after cleaning returned 204:0.559 instantly. Other cache keys untouched.
+
 ### 2026-11-23 — Proposal slate pre-ticks (предрассаживание)
 
 - `feat(luci)`: the Pool manager checkboxes now PRE-TICK the suggested slate — the top cutoff-qualified nodes of the rolling 24h census window (operator mandate: "after each round, propose the new best list") — instead of mirroring the current pool. A banner states the diff vs the live pool (+new / −dropped) because any Save & Apply on the page seats the slate; live-pool rows outside the slate render with a `· [current pool]` marker; zero qualified data keeps the live pool pre-ticked. `SPEC-pool-manager.md` §4 amended (proposal-slate semantics). Still passive: nothing seats without the operator's Save & Apply.
