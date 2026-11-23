@@ -1,0 +1,8 @@
+env/
+*.env
+!*.env.example
+tmp/
+node_modules/
+*.db
+__pycache__/
+.DS_Store

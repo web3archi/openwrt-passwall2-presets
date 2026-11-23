@@ -92,6 +92,12 @@ config widget 'widget'
 # 2026-10-04) briefly shipped 'main' here; no install ever used it.
 # Managed from Settings > Kill-switch; the window is applied by Save & Apply via
 # ucitrack → the init script's reload() → --ensure-cron.
+# Pool manager (docs/SPEC-pool-manager.md): passive census + ranked seating.
+# enabled gates the census only (the ranked list still renders last data when off).
+# prev_default_node is the force-balancer checkbox's restore memory (§5).
+config pool 'pool'
+	option enabled '1'
+
 config killswitch 'killswitch'
 	option enabled '1'
 	option window '15'

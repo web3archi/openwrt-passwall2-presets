@@ -1,0 +1,1 @@
+# AGENTS.md — project constitution (skeleton)

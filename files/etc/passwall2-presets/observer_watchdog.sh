@@ -35,6 +35,11 @@ RESTART_COOLDOWN=120     # internal safety constant (not yet a UI option, see BA
                           # follow-up note): minimum gap between two restart attempts for
                           # the SAME dead episode, to avoid thrashing on a persistent fault
 
+# ---- pool census constants (docs/SPEC-pool-manager.md) ----
+CENSUS_STATS=/overlay/passwall2-presets/pool-stats   # USB overlay: survives reboot (the
+                          # 2026-11-22 reboot wiped a tmpfs status; stats must not die that way)
+CENSUS_WINDOW_SECS=86400  # 24h rolling window; older samples pruned on every census write
+
 mkdir -p "$STATE_DIR"
 
 now() { date +%s; }
@@ -105,10 +110,14 @@ ensure_cron() {
     grep -v 'passwall2-presets/observer_watchdog.sh' "$CRON_FILE" > "$CRON_TMP" 2>/dev/null
     o=0
     while [ "$o" -lt 60 ]; do
+        # --census rides the LAST line only (SPEC-pool-manager.md §1: one probe per minute;
+        # the window=15 default puts it on the sleep-45 tick). Other ticks stay plain.
+        SUFFIX=""
+        [ $((o + KS_WINDOW)) -ge 60 ] && SUFFIX=" --census"
         if [ "$o" -eq 0 ]; then
-            printf '%s\n' '* * * * * /etc/passwall2-presets/observer_watchdog.sh' >> "$CRON_TMP"
+            printf '%s\n' "* * * * * /etc/passwall2-presets/observer_watchdog.sh${SUFFIX}" >> "$CRON_TMP"
         else
-            printf '%s\n' "* * * * * sleep ${o}; /etc/passwall2-presets/observer_watchdog.sh" >> "$CRON_TMP"
+            printf '%s\n' "* * * * * sleep ${o}; /etc/passwall2-presets/observer_watchdog.sh${SUFFIX}" >> "$CRON_TMP"
         fi
         o=$((o + KS_WINDOW))
     done
@@ -118,11 +127,66 @@ ensure_cron() {
     return 0
 }
 
+# ---- pool census (docs/SPEC-pool-manager.md §1) -------------------------------------
+# Passive: ONE url-test probe per census fire (the PW2-native test.sh method — a short-
+# lived local socks instance with the node as outbound; secrets never leave the router).
+# Gated by passwall2_presets.pool.enabled, INDEPENDENT of observer main.enabled: the census
+# keeps ranking even while the observer probes are off. Round-robin cursor persists in the
+# state dir; the sweep self-slows because this whole step runs inside the observer lock.
+census_run() {
+    [ "${CENSUS_TICK:-0}" = "1" ] || return 0
+    local POOL_ENABLED=$(uci_get ${PKG}.pool.enabled)
+    [ "${POOL_ENABLED:-1}" = "1" ] || return 0
+    [ -x /usr/share/passwall2/test.sh ] || return 0
+    mkdir -p /overlay/passwall2-presets 2>/dev/null
+    [ -d /overlay/passwall2-presets ] || return 0
+    # Census set: Xray nodes with allowlisted protocols (ss/ssr excluded by protocol
+    # allowlist per the 2026-11-22 operator call), not RU-flagged, not this addon's own
+    # infrastructure sections. Carriers (_balancing/_shunt) never carry these protocols.
+    local CSET=""
+    local s t pr g rem
+    for s in $(uci show passwall2 2>/dev/null | grep "\.=nodes$" | cut -d. -f2 | sort -u); do
+        case "$s" in pw2p_*) continue ;; esac
+        t=$(uci_get passwall2.$s.type); [ "$t" = "Xray" ] || continue
+        pr=$(uci_get passwall2.$s.protocol)
+        case "$pr" in vless|trojan) ;; *) continue ;; esac
+        g=$(uci_get passwall2.$s.group)
+        rem=$(uci_get passwall2.$s.remarks)
+        [ "$g" = "RU" ] && continue
+        case "$rem" in *'🇷🇺'*) continue ;; esac
+        CSET="$CSET $s"
+    done
+    [ -n "$(echo $CSET | tr -d ' ')" ] || return 0
+    set -- $CSET
+    local CURSOR=$(cat "${STATE_DIR}/census_cursor" 2>/dev/null)
+    local NEXT="" seen=0
+    local s2
+    for s2 in "$@"; do
+        if [ "$seen" = "1" ]; then NEXT="$s2"; break; fi
+        [ "$s2" = "$CURSOR" ] && seen=1
+    done
+    [ -z "$NEXT" ] && NEXT="$1"
+    echo "$NEXT" > "${STATE_DIR}/census_cursor.tmp" && mv -f "${STATE_DIR}/census_cursor.tmp" "${STATE_DIR}/census_cursor"
+    local RES CODE MS OK NOW CUT
+    RES=$(timeout 30 sh /usr/share/passwall2/test.sh url_test_node "$NEXT" 2>/dev/null)
+    CODE=${RES%%:*}
+    MS=${RES#*:}
+    case "$CODE" in 200|204) OK=1 ;; *) OK=0; MS=0 ;; esac
+    NOW=$(now)
+    printf '%s|%s|%s|%s\n' "$NEXT" "$NOW" "$OK" "$MS" >> "$CENSUS_STATS"
+    CUT=$((NOW - CENSUS_WINDOW_SECS))
+    awk -F"|" -v c="$CUT" '$2 > c' "$CENSUS_STATS" > "${CENSUS_STATS}.tmp" 2>/dev/null && \
+        mv -f "${CENSUS_STATS}.tmp" "$CENSUS_STATS"
+    log "CENSUS: probed ${NEXT} -> code ${CODE} (${MS} ms)"
+    return 0
+}
+
 # Lock-free operator CLI. The init script calls --arm and --ensure-cron at every
 # boot and --ensure-cron again on reload (Save & Apply); --disarm is the documented
 # escape hatch; --status prints the wall state. These run before the lock and
 # before the observer-enabled gate on purpose.
 case "${1:-}" in
+    --census)     CENSUS_TICK=1 ;;   # marker from the cron line: run the normal pass + census
     --arm)         [ "$KS_ENABLED" = "1" ] && ks_arm; exit 0 ;;
     --disarm)      ks_disarm; exit 0 ;;
     --status)      ks_armed && echo armed || echo disarmed; exit 0 ;;
@@ -161,6 +225,9 @@ uci_get_list() { uci -q get "$1" 2>/dev/null; }   # list-type options: values wh
                                                     # via `set -- $(...); echo $#`, not grep -c .
 
 OBS_ENABLED=$(uci_get ${PKG}.main.enabled); OBS_ENABLED=${OBS_ENABLED:-0}
+
+census_run   # pool census: gated by pool.enabled, NOT by main.enabled (SPEC-pool-manager.md §1)
+
 [ "$OBS_ENABLED" != "1" ] && exit 0
 
 WATCHDOG_ENABLED=$(uci_get ${PKG}.main.watchdog_enabled); WATCHDOG_ENABLED=${WATCHDOG_ENABLED:-0}

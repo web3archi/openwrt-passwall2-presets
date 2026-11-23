@@ -1,0 +1,1 @@
+# Megathread prompt (skeleton)

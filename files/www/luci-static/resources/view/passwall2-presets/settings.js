@@ -1,5 +1,6 @@
 'use strict';
 'require form';
+'require fs';
 'require ui';
 'require view';
 'require uci';
@@ -83,6 +84,95 @@
 var MANUAL_SOCKS_SECTION = 'pw2p_manual_socks';
 var MANUAL_NODE_SECTION = 'pw2p_manual_node';
 var CUSTOM_NODE_SECTION = 'pw2p_custom_socks_node';
+
+// ---- Pool manager (docs/SPEC-pool-manager.md) ----
+var POOL_STATS_FILE = '/overlay/passwall2-presets/pool-stats';
+var POOL_CAP = 13;           // maximum, never a quota (operator 2026-11-23)
+var POOL_MIN_ATTEMPTS = 2;   // cutoff constants mirror observer_watchdog.sh's census; the
+var POOL_MIN_SUCCESS = 50;   // list is earned, not padded — fewer qualifiers render
+var POOL_MAX_STREAK = 2;     // fewer rows (a streak of 3 excludes)
+var POOL_STATS_RAW = '';
+
+// Census-set membership (mirrors observer_watchdog.sh census_run): Xray nodes with
+// allowlisted protocols, not RU-flagged, not this addon's own infrastructure.
+function poolCandidateNodes() {
+	return loadNodes().filter(function(n) {
+		if (n.type !== 'Xray')
+			return false;
+		if (n.protocol !== 'vless' && n.protocol !== 'trojan')
+			return false;
+		if (isSpecialNode(n))
+			return false;
+		if (n.group === 'RU' || /🇷🇺/.test(n.remarks || ''))
+			return false;
+		return true;
+	});
+}
+
+// Parse the observer's append-only samples log (sid|ts|ok|ms, 24h window already pruned
+// server-side). Returns per-sid aggregates for ranking + display.
+function parsePoolStats(raw, nowSec) {
+	var rec = {}, lines = (raw || '').split('\n');
+	for (var i = 0; i < lines.length; i++) {
+		var f = lines[i].split('|');
+		if (f.length < 4 || !f[0])
+			continue;
+		var ts = +f[1];
+		if (!ts || ts < nowSec - 86400)
+			continue;
+		if (!rec[f[0]])
+			rec[f[0]] = { samples: [] };
+		rec[f[0]].samples.push({ ts: ts, ok: f[2] === '1', ms: +f[3] || 0 });
+	}
+	var out = {};
+	for (var sid in rec) {
+		var s = rec[sid].samples;
+		var oks = s.filter(function(x) { return x.ok; }).map(function(x) { return x.ms; })
+			.sort(function(a, b) { return a - b; });
+		var streak = 0, i2 = s.length - 1;
+		while (i2 >= 0 && !s[i2].ok) { streak++; i2--; }
+		var lastOk = null;
+		for (i2 = s.length - 1; i2 >= 0; i2--)
+			if (s[i2].ok) { lastOk = s[i2].ts; break; }
+		var p = function(q) {
+			if (!oks.length)
+				return null;
+			return oks[Math.min(oks.length - 1, Math.floor(q * oks.length))];
+		};
+		out[sid] = {
+			attempts: s.length,
+			success: s.length ? Math.round(100 * oks.length / s.length) : 0,
+			p50: p(0.5), p90: p(0.9),
+			streak: streak,
+			since_ok: lastOk ? nowSec - lastOk : null,
+			verdict_ok: !!(s.length && s[s.length - 1].ok)
+		};
+	}
+	return out;
+}
+
+// Ranked suggestion list: cutoff-qualified nodes by score (p50 primary, success-rate
+// tiebreak, active-fail-streak penalty), capped at POOL_CAP rows.
+function rankPool(stats) {
+	var cands = poolCandidateNodes().map(function(n) {
+		var st = stats[n['.name']];
+		return st ? { sid: n['.name'], remarks: n.remarks || n['.name'], st: st } : null;
+	}).filter(function(x) { return !!x; })
+	.filter(function(x) {
+		return x.st.verdict_ok && x.st.attempts >= POOL_MIN_ATTEMPTS &&
+			x.st.success >= POOL_MIN_SUCCESS && x.st.streak <= POOL_MAX_STREAK;
+	});
+	cands.sort(function(a, b) {
+		var d = (a.st.p50 || 9e9) - (b.st.p50 || 9e9);
+		if (d)
+			return d;
+		d = b.st.success - a.st.success;
+		if (d)
+			return d;
+		return a.st.streak - b.st.streak;
+	});
+	return cands.slice(0, POOL_CAP);
+}
 
 // A node counts as "special" (never offered as a Main/Backup pick, never treated as *the*
 // user-facing balancer target for display purposes beyond the balancer lookup itself) when
@@ -196,7 +286,12 @@ return view.extend({
 		// calls against it during render() (node pickers, balancer discovery, current-
 		// strategy detection) have data to read, and so uci.set()/uci.add() calls during
 		// save() land in the right changeset.
-		return uci.load('passwall2');
+		return Promise.all([
+			uci.load('passwall2'),
+			fs.read_direct(POOL_STATS_FILE).catch(function() { return null; })
+		]).then(function(res) {
+			POOL_STATS_RAW = res[1] || '';
+		});
 	},
 
 	render: function() {
@@ -370,6 +465,122 @@ return view.extend({
 			return uci.get('passwall2', CUSTOM_NODE_SECTION, 'password') || '';
 		};
 		customPass.write = function() {};
+
+		// --- Pool manager (docs/SPEC-pool-manager.md §4/§5) ------------------------------
+		// Passive census + ranked seating. The ranked list renders from the stats the
+		// observer's census accumulates; the checkboxes ONLY seat on Save & Apply — nothing
+		// here ever reseats or rolls back by itself (operator mandate 2026-11-22).
+		var bal = findBalancerSection();
+		var balName = (bal && bal.kind === 'xray_balancing') ? bal.section['.name'] : null;
+		var currentPool = balName ? (uci.get('passwall2', balName, 'balancing_node') || []) : [];
+		var currentFallback = balName ? uci.get('passwall2', balName, 'fallback_node') : null;
+		var poolStats = parsePoolStats(POOL_STATS_RAW, Math.floor(Date.now() / 1000));
+		var ranked = rankPool(poolStats);
+		var poolRows = ranked.slice(0);
+		// Currently-seated nodes outside the qualified suggestion list stay visible (marked)
+		// so a Save can never silently drop a seat the operator cannot see (SPEC §4).
+		(currentPool || []).concat(currentFallback ? [ currentFallback ] : []).forEach(function(sid) {
+			if (!sid)
+				return;
+			var known = poolRows.some(function(r) { return r.sid === sid; });
+			if (!known) {
+				var n = loadNodes().filter(function(x) { return x['.name'] === sid; })[0];
+				if (n)
+					poolRows.push({ sid: sid, remarks: n.remarks || sid, st: null });
+			}
+		});
+
+		if (!uci.get('passwall2_presets', 'pool'))
+			uci.add('passwall2_presets', 'pool', 'pool');
+		var sPool = m.section(form.NamedSection, 'pool', 'pool', null);
+		sPool.addremove = false;
+
+		function fmtMs(v) { return (v == null) ? '—' : (v + ' ms'); }
+		function fmtAgo(s) { return (s == null) ? '—' : (Math.floor(s / 60) + ' m'); }
+
+		// Force-balancer: a MIRROR (cfgvalue reads live shunt state), never a stored flag.
+		// Writes ONLY the shunt's default_node — never @global node/tcp/udp (the 2026-11-22
+		// drift class). Restore-on-untick only-if-current-is-ours (never clobbers).
+		var shunt = findShuntSection();
+		var fBal = sPool.option(form.Flag, 'force_balancer',
+			_('Force the shunt default through the Balancing node'));
+		fBal.rmempty = false;
+		fBal.default = '0';
+		fBal.cfgvalue = function() {
+			return (shunt && balName && shunt.section.default_node === balName) ? '1' : '0';
+		};
+		fBal.description = (shunt && balName) ?
+			_('Tick to point the shunt default_node at the Balancing node. Untick restores ' +
+			'the remembered previous target, if it is still ours. Never touches the Main ' +
+			'node / tcp_node / udp_node.') :
+			_('Inert: no shunt node or no Xray Balancing node found. This addon never creates ' +
+			'either — configure them on PassWall2 own Node List page.');
+		fBal.write = function(section_id, value) {
+			if (!shunt || !balName)
+				return;
+			var cur = uci.get('passwall2', shunt.section['.name'], 'default_node');
+			if (value === '1') {
+				if (cur !== balName)
+						uci.set('passwall2_presets', 'pool', 'prev_default_node', cur || '');
+				uci.set('passwall2', shunt.section['.name'], 'default_node', balName);
+			} else {
+				var prev = uci.get('passwall2_presets', 'pool', 'prev_default_node');
+				if (cur === balName && prev)
+					uci.set('passwall2', shunt.section['.name'], 'default_node', prev);
+			}
+		};
+
+		// Seating: fallback is a single-select dropdown (native at-most-one, the 2026-11-23
+		// resolution of the two-checkbox mutex); pool rows are checkboxes whose write() is a
+		// no-op — the dropdown's write() rebuilds the whole seating from every checkbox state
+		// in one pass (formvalue reads live DOM at save time).
+		var seatOptions = [];
+		poolRows.forEach(function(r, idx) {
+			var title = (idx + 1) + '. ' + (r.remarks || r.sid) +
+				(r.st ? ' — p50 ' + fmtMs(r.st.p50) + ' · ' + r.st.success + '% · streak ' + r.st.streak
+						: ' — awaiting census data');
+			var o = sPool.option(form.Flag, 'seat_' + r.sid, title);
+			o.rmempty = false;
+			o.default = '0';
+			o.cfgvalue = function() { return (currentPool || []).indexOf(r.sid) >= 0 ? '1' : '0'; };
+			o.write = function() {};   // never persisted: seating lands in passwall2 below
+			o.description = r.st ?
+				_('Attempts (24h): ' + r.st.attempts + ' · success: ' + r.st.success + '%' +
+					' · p50/p90: ' + fmtMs(r.st.p50) + ' / ' + fmtMs(r.st.p90) +
+					' · since ok: ' + fmtAgo(r.st.since_ok)) :
+				_('Seated in PassWall2 but not qualifying for the suggestion list (no/old data).');
+			seatOptions.push({ opt: o, sid: r.sid });
+		});
+
+		var fb = sPool.option(form.ListValue, 'fallback_node', _('Fallback node (one)'));
+		fb.rmempty = false;
+		fb.value('', _('— none (blackhole) —'));
+		poolRows.forEach(function(r) {
+			fb.value(r.sid, r.remarks || r.sid);
+		});
+		fb.cfgvalue = function() {
+			return (currentFallback && poolRows.some(function(r) { return r.sid === currentFallback; })) ? currentFallback : '';
+		};
+		fb.description = _('When every pool node is down, PassWall2 routes through this one ' +
+			'node. A fallback that is ALSO a pool member degrades to blackhole silently ' +
+			'(util_xray.lua gen_balancer), so the dropdown choice is always removed from the ' +
+			'pool on save.');
+		fb.write = function(section_id, value) {
+			if (!balName)
+				return;
+			var chosen = [];
+			seatOptions.forEach(function(s) {
+				if (s.opt.formvalue(section_id) === '1')
+					chosen.push(s.sid);
+			});
+			if (value && chosen.indexOf(value) >= 0)
+				chosen.splice(chosen.indexOf(value), 1);   // fallback sits OUTSIDE the pool
+			uci.set('passwall2', balName, 'balancing_node', chosen);
+			if (value)
+				uci.set('passwall2', balName, 'fallback_node', value);
+			else
+				uci.remove('passwall2', balName, 'fallback_node');
+		};
 
 		// --- Preset A: "Best node" ------------------------------------------------------
 		var sBest = m.section(form.NamedSection, 'best_node', 'preset', null);
@@ -695,6 +906,7 @@ return view.extend({
 			wrapInDetails('#cbi-passwall2_presets-best_node', _('Best node (Preset A)'), true);
 			wrapInDetails('#cbi-passwall2_presets-widget', _('Widget'), false);
 			wrapInDetails('#cbi-passwall2_presets-custom_socks', _('Custom SOCKS5'), true);
+			wrapInDetails('#cbi-passwall2_presets-pool', _('Pool manager'), false);
 			wrapInDetails('#cbi-passwall2_presets-killswitch', _('Kill-switch'), false);
 
 			return mapEl;

@@ -4,6 +4,7 @@
 		"read": {
 			"file": {
 				"/tmp/passwall2_presets/observer_watchdog.status": [ "read" ],
+			"/overlay/passwall2-presets/pool-stats": [ "read" ],
 				"/tmp/passwall2_presets/observer_watchdog.log": [ "read" ]
 			},
 			"ubus": {

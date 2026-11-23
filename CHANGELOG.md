@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [Unreleased]
+### 2026-11-23 — Pool manager (passive census, ranked seating)
+
+- `feat(pool)`: observer census step — ONE `url_test_node`-class probe per minute on the existing cron grid (`--census` rides the last sleep-offset line via `--ensure-cron`; the grid and the 15s status freshness untouched), round-robin over the fitness-filtered census set (Xray vless/trojan, ss excluded, RU excluded, addon infra excluded), samples appended to `/overlay/passwall2-presets/pool-stats` (USB — survives reboot; 24h window pruned per write). `pool.enabled` gates it independently of `main.enabled`. Simplification from SPEC §2: verdict collapses to ok/fail (start-vs-dead proved ambiguous live 2026-11-22).
+- `feat(luci)`: Settings gains a collapsible "Pool manager" section between Custom SOCKS5 and Preset A — the ranked suggestion list (cutoff: verdict ok + at-least-2 attempts + at-least-50% success + streak below 3; cap 13 = maximum, never a quota), per-row seat checkboxes (write() no-ops; the fallback dropdown's write() rebuilds the full seating in one pass and always removes the fallback sid from the pool), a single-select fallback dropdown (native at-most-one — the SPEC §4 two-checkbox mutex resolved as a dropdown), and the force-balancer mirror checkbox (writes only `rulenode.default_node`, remembers `prev_default_node`, restores only-if-current-is-ours; never touches `@global` node/tcp/udp). Seated-but-unqualified rows render marked instead of vanishing.
+
 ### 2026-11-23 — Pool manager design
 
 - `docs`: `SPEC-pool-manager.md` — passive census (one probe per minute on the existing observer grid), 24h window metrics (p50/p90/success/streak) with a quality cutoff for the suggestion list (verdict ok + at-least-2 attempts + at-least-50% success + streak below 3; cap 13 = maximum, never a quota), broken-class start detection, the Settings collapsible section (ranked DummyValue rows + balancer/fallback mutex checkboxes), force-balancer as a mirror checkbox (writes only `rulenode.default_node`, never `@global` node/tcp/udp), write semantics (add_list pools, fallback-out-of-pool invariant, headless post-write self-check), and explicit kill-switch non-interaction.

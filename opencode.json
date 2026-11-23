@@ -1,0 +1,69 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "role-overseer": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "role-megathread": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "role-coder": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "master-of-security": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "master-of-truth": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "master-of-search": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "master-of-probability": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "council": {
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    }
+  }
+}

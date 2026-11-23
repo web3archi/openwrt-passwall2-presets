@@ -1,0 +1,1331 @@
+{
+  "schema": "model-ladder-v3",
+  "schema_minor": "3.1",
+  "dec": "DEC-041 + addendum 2026-09-05 (local-tier amendment, native routing)",
+  "derived_from": "docs/specs/gearbox/RECOMMISSION-TZ.md §6 (out-ultra-opus-r3 part 3)",
+  "verified": "PENDING price-sync (P0). [L] = 2026-09-05 live; all others unverified",
+  "tier_semantics": {
+    "low": "cheapest live-priced CLOUD slug passing duty profile + invariant hierarchy",
+    "medium": "duty-derived default under balanced",
+    "high": "one declared trigger above medium",
+    "ultra": "maximum; approval-gated; <=3 calls/task",
+    "collapsed_low": "true when no cheaper legal live-priced slug exists; kick-down goes to mode or schedule",
+    "fallback": "NOT a tier: the local box, capacity 1, priority-ordered, reachable only in state OFFLINE",
+    "lane": "coder-only capacity-bearing channel; the coder's strength axis"
+  },
+  "states": {
+    "ONLINE": "default",
+    "DEGRADED": "per-slug LANE_DEATH / slug-busy / cooldown -> lateral, serialize, batch; never vertical",
+    "OFFLINE": {
+      "entry": ">=2 distinct vendors fail at connect level within 60s, or preset:offline",
+      "routing": "fallback box, priority order, queue arbitrates",
+      "exit": "next dispatch re-probes one cloud slug; TTL 300s; no polling, no daemon",
+      "cost": 0
+    },
+    "BLOCKED": "OFFLINE and fallback unreachable -> operator await (sys.offline_blocked, S4)"
+  },
+  "fallback": {
+    "slug": "local:gpt-oss-20b-MXFP4",
+    "duties": [
+      "role-coder host (lane local)",
+      "system fallback in state OFFLINE"
+    ],
+    "capacity": 1,
+    "preemption": false,
+    "priority": [
+      "role-coder",
+      "role-overseer",
+      "role-megathread",
+      "master-of-security",
+      "master-of-truth",
+      "master-of-search",
+      "master-of-probability"
+    ],
+    "council": "BLOCKED",
+    "not_a_tier": true,
+    "not_rotatable": true,
+    "lease": "slug:local:gpt-oss-20b-MXFP4 (site-global, priority-ordered)"
+  },
+  "modes": {
+    "sync": "default",
+    "batch": "~50% price, asynchronous; the one-shot route (DEC-036)"
+  },
+  "batch_is_duty": "OFF: role-overseer, role-coder. ON: role-megathread intel high, master-of-security intel high, master-of-truth anchors, council, canaries, all one-shots",
+  "rule_absent_tier": "nearest upper assigned tier on the same axis; if none, the highest assigned; log degraded=1; two consecutive degraded=1 on one task = BLOCKED",
+  "invariants": {
+    "I1_security": {
+      "verifier_edge_disjoint": true,
+      "artifact_vendor_exclusion": "a review call never runs on the vendor that produced the artifact (reason=vendor-exclusion)",
+      "reserved_vendors": {
+        "moonshot": "master-of-truth"
+      },
+      "council": ">=2 pairwise-distinct eligible after exclusions, else BLOCKED -> operator"
+    },
+    "I2_capacity": {
+      "always_on_lanes_disjoint": [
+        "role-overseer.talk",
+        "role-megathread.talk"
+      ],
+      "one_consumer_per_slug_scope": "talk sessions + heavy intel (>2000 tok out or >30s); micro-calls exempt and yielding",
+      "fallback": "capacity 1, priority-ordered"
+    },
+    "I3_hygiene": {
+      "self_check_separation": "a role's intel axis avoids its own talk vendor concurrently",
+      "lineage_rotation": "rotation avoids the lineage of the instance that just failed"
+    },
+    "lane_reachability": "coder cloud-strong reachable only from cloud-fast; direct local->cloud-strong requires operator force AND selects ultra_alt",
+    "context_overflow": "step to the nearest assigned tier whose window fits; mechanical, no TTL cost",
+    "ci_assertions": [
+      "MT working vendors INTERSECT coder lane vendors (incl. ultra_alt) = empty",
+      "council pool + reserve >= 3 distinct vendors",
+      "moonshot only under master-of-truth",
+      "no verifying edge shares a vendor after D12",
+      "no slot with price_confidence != live is a lateral target or a models[] chain member",
+      "the fallback slug appears only under fallback and role-coder.lanes.local",
+      "the two always-on talk primaries differ in slug and vendor"
+    ]
+  },
+  "genus_pools": {
+    "G1": {
+      "class": "cheap >=1M chat",
+      "members": [
+        {
+          "slug": "z-ai/glm-5.3-flash",
+          "vendor": "zhipu",
+          "lineage": "glm",
+          "rotatable": true
+        },
+        {
+          "slug": "deepseek/deepseek-v4.1-flash-1017",
+          "vendor": "deepseek",
+          "lineage": "deepseek",
+          "rotatable": true
+        },
+        {
+          "slug": "qwen/qwen3.5-plus-02-15",
+          "vendor": "alibaba",
+          "lineage": "qwen",
+          "rotatable": "serialize-only until priced"
+        },
+        {
+          "slug": "google/gemini-3.8-flash",
+          "vendor": "google",
+          "lineage": "gemini",
+          "rotatable": true,
+          "side": "megathread-only"
+        },
+        {
+          "slug": "minimax/minimax-m3.1-flash",
+          "vendor": "minimax",
+          "lineage": "minimax",
+          "rotatable": true,
+          "side": "coder-only"
+        }
+      ],
+      "probes": [
+        "P3a",
+        "P3b"
+      ],
+      "rules": [
+        "R-G1",
+        "R-G2",
+        "R-G3",
+        "R-G4",
+        "A1",
+        "A2",
+        "A3",
+        "A4"
+      ],
+      "allocation": "at stream start, first free member passing I1+I2+I3 and A1-A4; recorded in the instance's first declaration",
+      "lateral_requires": "price_confidence=live on BOTH source and target, not stale"
+    }
+  },
+  "gearbox": {
+    "autonomy_level": "L1",
+    "autonomy_levels": [
+      "L0",
+      "L1",
+      "L2",
+      "L3"
+    ],
+    "lane_death_enabled": true,
+    "offline_enabled": true,
+    "local_down_enabled": true,
+    "sprint_soft_cap_usd": 25,
+    "auto_quote_line_usd": 1,
+    "long_generation_out_tokens": 8000,
+    "cooldown_secs": {
+      "first_death": 900,
+      "second_death_same_task": 3600
+    },
+    "lateral_cap_per_task": 2,
+    "anti_oscillation_k": 2,
+    "ultra_calls_per_task_max": 3,
+    "price_stale_days": 14,
+    "unverified_price_quote_multiplier": 2,
+    "interlock_silence_secs": {
+      "generation_heavy": 1500,
+      "ordinary": 60,
+      "rule": "max(2x median inter-event gap, floor)"
+    }
+  },
+  "router": {
+    "provider_native": "openrouter",
+    "gateway": "none (operator decision 2026-09-05: no LiteLLM, no Portkey, no self-hosted gateway)",
+    "usage_include": true,
+    "chain_rules": {
+      "max_len": 2,
+      "members_must_be_in": "slot.alternates[]",
+      "require_live_price": true,
+      "require_invariants": [
+        "I1",
+        "I3",
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "require_served_model_readback": true,
+      "forbidden_on": [
+        "role-coder.lanes.*",
+        "role-megathread.talk.medium",
+        "council",
+        "batch"
+      ]
+    },
+    "profiles": {
+      "overseer_talk_low_medium": {
+        "allow_fallbacks": true,
+        "max_price_out": 0.5,
+        "chain": [
+          "z-ai/glm-5.3-flash",
+          "G1-lateral"
+        ]
+      },
+      "overseer_talk_high_ultra": {
+        "allow_fallbacks": false,
+        "pin": true
+      },
+      "overseer_intel": {
+        "allow_fallbacks": true,
+        "sort": "price@economy"
+      },
+      "mt_talk_medium_compose": {
+        "allow_fallbacks": false,
+        "pin": true,
+        "sort": "throughput",
+        "chain": null
+      },
+      "mt_talk_low_bookkeeping": {
+        "allow_fallbacks": true,
+        "max_price_out": 0.36,
+        "sort": "price",
+        "chain": [
+          "deepseek/deepseek-v4.1-flash-1017",
+          "google/gemini-3.8-flash"
+        ]
+      },
+      "mt_high_and_intel": {
+        "allow_fallbacks": false,
+        "pin": true
+      },
+      "coder_lanes": {
+        "allow_fallbacks": false,
+        "pin": true,
+        "require_parameters": true,
+        "chain": null
+      },
+      "mos_intel_high": {
+        "allow_fallbacks": false,
+        "pin": true,
+        "data_collection": "deny"
+      },
+      "mot_all": {
+        "allow_fallbacks": false,
+        "pin": true
+      },
+      "mosearch_micro": {
+        "allow_fallbacks": true,
+        "sort": "price",
+        "chain": [
+          "z-ai/glm-5.3-flash",
+          "qwen/qwen3.5-plus-02-15"
+        ]
+      },
+      "council": {
+        "allow_fallbacks": false,
+        "pin": true,
+        "chain": null
+      }
+    },
+    "local_endpoint": "outside every OpenRouter mechanism; reached only by our dispatch path in state OFFLINE"
+  },
+  "roles": {
+    "role-overseer": {
+      "duties": "operator dialogue, requirement shaping, critique, decomposition, decisions, council synthesis",
+      "talk": {
+        "low": "z-ai/glm-5.3-flash",
+        "medium": "z-ai/glm-5.3-flash",
+        "high": "z-ai/glm-5.3",
+        "ultra": "openai/gpt-6-sol",
+        "medium_up": "z-ai/glm-5.3"
+      },
+      "collapsed_low": true,
+      "talk_medium_promotion_rule": "medium_up binds at the next session launch after two quality-limited shaping sessions within 14 days",
+      "intel": {
+        "low": "z-ai/glm-5.3-flash",
+        "medium": "qwen/qwen3.5-plus-02-15",
+        "high": "z-ai/glm-5.3",
+        "ultra": "openai/gpt-6-sol"
+      },
+      "intel_batch": {
+        "low": false,
+        "medium": false,
+        "high": false,
+        "ultra": false
+      },
+      "genus": "G1",
+      "slots": {
+        "talk.medium": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "xiaomi/mimo-v2.6-flash",
+              "kind": "float",
+              "guard": "OS fallback (DEC-089 float rule); the matrix may lend it, e.g. as an MT mirror; I2 still binds the talk primaries to distinct slugs AND vendors"
+            },
+            {
+              "slug": "qwen/qwen3.5-plus-02-15",
+              "kind": "lateral",
+              "guard": "price_confidence=live AND intel!=alibaba concurrently"
+            },
+            {
+              "slug": "deepseek/deepseek-v4.1-flash-1017",
+              "kind": "borrow",
+              "guard": "owner=role-megathread idle on disk AND await id"
+            }
+          ],
+          "price_binding": "operator manual seat: worker.id of role-overseer"
+        },
+        "talk.high": {
+          "horizontal": "none",
+          "alternates": [
+            {
+              "slug": "openai/gpt-6.1-terra",
+              "kind": "primary",
+              "guard": "2026-10-27 refresh: fills the empty talk.high shelf; no cross-role slug overlap"
+            }
+          ]
+        },
+        "talk.ultra": {
+          "horizontal": "none",
+          "alternates": []
+        }
+      },
+      "fallback_priority": 2
+    },
+    "role-megathread": {
+      "duties": "chunking, coder dispatch and lane flips, semantic diff review, acceptance vs verify-gate, local commits",
+      "session_types": {
+        "bookkeeping": "low",
+        "compose": "medium",
+        "review": "medium"
+      },
+      "talk": {
+        "low": "deepseek/deepseek-v4.1-flash-1017",
+        "medium": "deepseek/deepseek-v4.1-flash",
+        "high": "deepseek/deepseek-v4-pro-0813",
+        "ultra": "openai/gpt-6-sol"
+      },
+      "intel": {
+        "low": "deepseek/deepseek-v4.1-flash-1017",
+        "medium": "qwen/qwen3.5-397b-a17b",
+        "high": "google/gemini-3.8-flash",
+        "ultra": "anthropic/claude-sonnet-5"
+      },
+      "intel_batch": {
+        "low": false,
+        "medium": false,
+        "high": true,
+        "ultra": false
+      },
+      "internal_rule": "while talk is google-class, the review-check intel call runs at medium or ultra, not high",
+      "intel_ultra_condition": "D12: excluded when the chunk came from role-coder.talk.ultra_alt (anthropic) -> intel high (talk != google) or council",
+      "genus": "G1",
+      "slots": {
+        "talk.low": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "google/gemini-3.8-flash",
+              "kind": "lateral",
+              "guard": "price_confidence=live"
+            },
+            {
+              "slug": "z-ai/glm-5.3-flash",
+              "kind": "borrow",
+              "guard": "owner=role-overseer idle on disk AND await id"
+            }
+          ]
+        },
+        "talk.medium": {
+          "horizontal": "thin",
+          "price_binding": "binds on price-sync of deepseek-v4.1-flash",
+          "alternates": [
+            {
+              "slug": "xiaomi/mimo-v2.6-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 MT medium mirror"
+            },
+            {
+              "slug": "qwen/qwen3.8-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 MT medium mirror"
+            },
+            {
+              "slug": "tencent/hy3",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 MT medium mirror"
+            },
+            {
+              "slug": "z-ai/glm-5.3-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 MT medium mirror"
+            }
+          ]
+        },
+        "talk.high": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "google/gemini-3.8-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 MT high"
+            },
+            {
+              "slug": "tencent/hy4-preview",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 MT high"
+            }
+          ]
+        },
+        "intel.ultra": {
+          "horizontal": "none",
+          "alternates": [
+            {
+              "slug": "PROBE-P1",
+              "kind": "probe",
+              "guard": "non-anthropic, non-google, non-producer, 1M, deep code review"
+            }
+          ]
+        },
+        "talk.ultra": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "anthropic/claude-opus-5.5",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 MT ultra"
+            }
+          ]
+        }
+      },
+      "fallback_priority": 3
+    },
+    "role-coder": {
+      "duties": "writes code in an isolated worktree; deterministic settings; no network",
+      "lane_eligibility": "temperature+seed pinning, no mandatory tool loop, >=256k window, isolated-worktree contract, expected chunk output <=8000 tokens",
+      "lanes": {
+        "local": {
+          "slug": "local:gpt-oss-20b-MXFP4",
+          "tier": null,
+          "capacity": 1,
+          "role": "host",
+          "price": 0
+        },
+        "cloud-fast": {
+          "slug": "minimax/minimax-m3.1-flash",
+          "tier": "low|medium|high (collapsed band)",
+          "capacity_default": 2
+        },
+        "cloud-strong": {
+          "slug": "openai/gpt-5.3-codex",
+          "tier": "ultra",
+          "capacity_default": 1,
+          "reachable_from": "cloud-fast"
+        }
+      },
+      "talk": {
+        "low": "minimax/minimax-m3.1-flash",
+        "medium": "minimax/minimax-m3.1-flash",
+        "high": "deepseek/deepseek-v4-pro-0813",
+        "ultra": "openai/gpt-5.3-codex",
+        "ultra_alt": "anthropic/claude-opus-5.5"
+      },
+      "collapsed_low": true,
+      "ultra_alt_mandatory": "direct local->cloud-strong jump, or a lineage-shaped failure signature",
+      "intel": {
+        "low": "minimax/minimax-m3.1-flash",
+        "medium": "qwen/qwen3.5-plus-02-15",
+        "high": "minimax/minimax-m3.1-flash",
+        "ultra": null
+      },
+      "intel_batch": {
+        "low": false,
+        "medium": false,
+        "high": false,
+        "ultra": false
+      },
+      "slots": {
+        "talk.high": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "x-ai/grok-4.7",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 coder high"
+            },
+            {
+              "slug": "tencent/hy4-preview",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 coder high"
+            }
+          ]
+        },
+        "talk.medium": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "deepseek/deepseek-v4.1-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 coder medium mirror"
+            },
+            {
+              "slug": "qwen/qwen3-coder-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 coder medium mirror"
+            },
+            {
+              "slug": "xiaomi/mimo-v2.6-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 coder medium mirror"
+            },
+            {
+              "slug": "qwen/qwen3.8-flash",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 coder medium mirror"
+            }
+          ]
+        },
+        "talk.ultra": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "anthropic/claude-opus-5.5",
+              "kind": "mirror",
+              "guard": "price_confidence=live; DEC-089 coder ultra"
+            }
+          ]
+        }
+      },
+      "fallback_priority": 1
+    },
+    "master-of-security": {
+      "status": "designated (DEC-034); ladder rows land as data, no calls until activation",
+      "talk": {
+        "low": "qwen/qwen3.5-plus-02-15",
+        "medium": "qwen/qwen3.5-plus-02-15",
+        "high": "qwen/qwen3.8-max-0902",
+        "ultra": "anthropic/claude-opus-5.5"
+      },
+      "shelf_note": "ultra filled 2026-11-09 (fork 5): sprint-preset escalation target above the qwen high shelf; anthropic is not a coder-lane vendor, so security keeps producer/vendor separation",
+      "collapsed_low": true,
+      "intel": {
+        "low": "qwen/qwen3.5-plus-02-15",
+        "medium": "qwen/qwen3.5-397b-a17b",
+        "high": "qwen/qwen3.8-max-0902",
+        "ultra": null
+      },
+      "intel_batch": {
+        "low": false,
+        "medium": false,
+        "high": true,
+        "ultra": false
+      },
+      "intel_high_condition": "D12: excluded when the artifact is our own openai-lane coder output -> intel medium or await",
+      "note": "S3 scanner and the monthly attack digest are not model slots; they draw the shared L3 budget (mosearch.reserve_for_mos_usd default $4)",
+      "fail_closed": "never auto-pass",
+      "fallback_priority": 4,
+      "intel_high_fallback": "chosen AT CALL TIME by D12 (never the artifact's vendor); default candidate deepseek/deepseek-v4-pro-0813"
+    },
+    "master-of-truth": {
+      "status": "designated; DEC-032 cadence spans both axes",
+      "talk": {
+        "low": "moonshotai/kimi-k2.6",
+        "medium": "moonshotai/kimi-k2.6",
+        "high": "moonshotai/kimi-k3",
+        "ultra": "openai/gpt-5.5"
+      },
+      "shelf_note": "ultra filled 2026-11-09 (fork 5): sprint-preset escalation target; the moonshot seat stays the anchor, this is a shelf row, not a seat move",
+      "collapsed_low": true,
+      "intel": {
+        "low": "moonshotai/kimi-k2.6",
+        "medium": "moonshotai/kimi-k2.6",
+        "high": "moonshotai/kimi-k3",
+        "ultra": null
+      },
+      "intel_batch": {
+        "low": false,
+        "medium": false,
+        "high": true,
+        "ultra": false
+      },
+      "cadence": "anchor runs = talk high + intel high; between-anchor = talk medium + intel medium",
+      "reserved": "moonshot, non-borrowable (I1 reserved_vendors); role-truth stays the single source of truth on a powerful permanent slug — alternates are allowed as data (operator ruling 2026-11-09, fork 4 lifted); the seat itself does not move",
+      "slots": {
+        "talk.ultra": {
+          "horizontal": "thin",
+          "alternates": [
+            {
+              "slug": "anthropic/claude-opus-5.5",
+              "kind": "alternate",
+              "guard": "price_confidence=live; allowed as data after the 2026-11-09 reservation lift — the moonshot anchor is unchanged, I1 reserved_vendors still binds"
+            }
+          ]
+        }
+      },
+      "canary_runner": true,
+      "fallback_priority": 5
+    },
+    "master-of-search": {
+      "status": "designated; strength axis = search layers, not model tiers",
+      "talk": {
+        "low": "z-ai/glm-5.3-flash",
+        "medium": "z-ai/glm-5.3-flash",
+        "high": "x-ai/grok-4.7",
+        "ultra": "google/gemini-3.1-pro-preview"
+      },
+      "shelf_note": "high/ultra filled 2026-11-09 (fork 5): balanced/sprint escalation targets; the strength axis stays the search layers — these rows are data, not a call-path change",
+      "collapsed_low": true,
+      "call_class": "micro (exempt from one-consumer-per-slug; MUST yield)",
+      "intel": null,
+      "slots": {
+        "talk.medium": {
+          "horizontal": "live",
+          "alternates": [
+            {
+              "slug": "qwen/qwen3.5-plus-02-15",
+              "kind": "lateral",
+              "guard": "yield to any holder"
+            }
+          ]
+        }
+      },
+      "layers": {
+        "L0": "free advisory feeds",
+        "L1": "free built-in websearch",
+        "L2": "free GitHub MCP",
+        "L3": "paid deep-research API, hard $10/month shared with MoS"
+      },
+      "fallback_priority": 6,
+      "provider_note": "Perplexity API, outside the matrix (DEC-089); paid deep-research layer"
+    },
+    "master-of-probability": {
+      "status": "designated; advisory probability classifier (Jev transport skeleton until the calibration gate)",
+      "talk": {
+        "low": "z-ai/glm-5.3-flash",
+        "medium": "z-ai/glm-5.3-flash",
+        "high": "deepseek/deepseek-v4-pro-0813",
+        "ultra": "qwen/qwen3.8-max-0902"
+      },
+      "shelf_note": "high/ultra filled 2026-11-09 (fork 5): balanced/sprint escalation targets for the advisory classifier; MoP stays advisory-only — the rows never gate or auto-escalate",
+      "collapsed_low": true,
+      "call_class": "micro (advisory verdicts; exempt from one-consumer-per-slug; MUST yield)",
+      "intel": null,
+      "fallback_priority": 7,
+      "note": "seat provider role-mop/worker per .opencode/agents/role-mop.md; provider block draft in docs/reports/2026-10-12-roles-unconfigured-probe.md (operator-applied, live in config/providers.json)"
+    },
+    "council": {
+      "status": "designated; always operator-approved; no auto-council",
+      "pool": [
+        "anthropic/claude-opus-5",
+        "openai/gpt-5.5",
+        "google/gemini-3.1-pro-preview"
+      ],
+      "reserve": [
+        "moonshotai/kimi-k3",
+        "PROBE-P2"
+      ],
+      "composition": ">=2 members, pairwise-distinct vendors, exclude the reviewed material's vendor; mode batch default; <2 eligible = BLOCKED -> operator",
+      "offline": "BLOCKED"
+    }
+  },
+  "slugs": {
+    "local:gpt-oss-20b-MXFP4": {
+      "vendor_class": "local",
+      "lineage": "openai-lineage",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_verified_at": null,
+      "context": 65536,
+      "limit": {
+        "context": 54000,
+        "output": 8000
+      },
+      "endpoint": "local 192.168.206.156:8888",
+      "role": "fallback + coder host",
+      "rotatable": false,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "z-ai/glm-5.3-flash": {
+      "vendor_class": "zhipu",
+      "lineage": "glm",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_source": null,
+      "price_verified_at": null,
+      "band_cap_out": 0.5,
+      "context": 1048576,
+      "batch": true,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "z-ai/glm-5.3": {
+      "vendor_class": "zhipu",
+      "lineage": "glm",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "context": 1310720,
+      "note": "overseer talk medium_up candidate | live ctx 1310720 > registry 1048576 (sync found)",
+      "price_verified_at": null,
+      "price_source": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "deepseek/deepseek-v4-pro-0813": {
+      "vendor_class": "deepseek",
+      "lineage": "deepseek",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_verified_at": null,
+      "context": 1048576,
+      "batch": true,
+      "note": "MT talk medium per amendment; P0 price-sync target",
+      "price_source": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "qwen/qwen3.5-plus-02-15": {
+      "vendor_class": "alibaba",
+      "lineage": "qwen",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_verified_at": null,
+      "context": 1000000,
+      "price_source": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "qwen/qwen3.5-397b-a17b": {
+      "vendor_class": "alibaba",
+      "lineage": "qwen",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_verified_at": null,
+      "context": 262144,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "x-ai/grok-4.6": {
+      "vendor_class": "xai",
+      "lineage": "grok",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "context": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "google/gemini-3.8-flash": {
+      "vendor_class": "google",
+      "lineage": "gemini",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 0,
+      "batch_out": 1,
+      "price_confidence": null,
+      "context": 1048576,
+      "price_verified_at": null,
+      "price_source": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "google/gemini-3.1-pro-preview": {
+      "vendor_class": "google",
+      "lineage": "gemini",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 1,
+      "batch_out": 6,
+      "price_confidence": null,
+      "context": 1048576,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "openai/gpt-5.3-codex": {
+      "vendor_class": "openai",
+      "lineage": "openai",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "context": 400000,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "openai/gpt-5.6-terra": {
+      "vendor_class": "openai",
+      "lineage": "openai",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 1,
+      "batch_out": 6,
+      "price_confidence": null,
+      "context": 1050000,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "openai/gpt-5.5": {
+      "vendor_class": "openai",
+      "lineage": "openai",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 2,
+      "batch_out": 15,
+      "price_confidence": null,
+      "context": 1050000,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "anthropic/claude-sonnet-5": {
+      "vendor_class": "anthropic",
+      "lineage": "claude",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 1,
+      "batch_out": 5,
+      "price_confidence": null,
+      "context": 1000000,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "anthropic/claude-opus-5": {
+      "vendor_class": "anthropic",
+      "lineage": "claude",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 2,
+      "batch_out": 12,
+      "price_confidence": null,
+      "context": 1000000,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "anthropic/claude-opus-4.8": {
+      "vendor_class": "anthropic",
+      "lineage": "claude",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 2,
+      "batch_out": 12,
+      "price_confidence": null,
+      "context": 1000000,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "moonshotai/kimi-k2.6": {
+      "vendor_class": "moonshot",
+      "lineage": "kimi",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "context": 262144,
+      "reserved_for": "master-of-truth",
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "moonshotai/kimi-k3": {
+      "vendor_class": "moonshot",
+      "lineage": "kimi",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 3,
+      "batch_out": 15,
+      "price_confidence": null,
+      "context": 1048576,
+      "reserved_for": "master-of-truth",
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "thinkingmachines/inkling": {
+      "vendor_class": "thinkingmachines",
+      "lineage": "thinkingmachines",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "context": 1048576,
+      "note": "P1 resolution: MT intel-ultra fresh vendor; pending MoS vetting (DEC-034) before binding",
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "meta/muse-spark-1.3": {
+      "vendor_class": "meta",
+      "lineage": "meta",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "context": 1048576,
+      "note": "P2 resolution: council reserve #5; pending MoS vetting (DEC-034)",
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "inception/mercury-2.5-preview": {
+      "vendor_class": "inception",
+      "lineage": "inception",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "context": 260000,
+      "note": "P4 resolution: second cheap-fast coder lane; pending MoS vetting + five lane-eligibility criteria",
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "deepseek/deepseek-v4.1-flash": {
+      "vendor_class": "deepseek",
+      "lineage": "deepseek",
+      "price_confidence": null,
+      "context": 1048576,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null,
+      "base_slug": "deepseek/deepseek-v4.1-flash",
+      "batch_slug": "deepseek/deepseek-v4.1-flash:batch",
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "stealth/union-alpha": {
+      "vendor_class": "stealth",
+      "lineage": "stealth",
+      "price_confidence": null,
+      "context": 262144,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "anthropic/claude-opus-5.5": {
+      "vendor_class": "anthropic",
+      "lineage": "claude",
+      "price_confidence": null,
+      "context": 1000000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "anthropic/claude-opus-5.5",
+      "batch_slug": "anthropic/claude-opus-5.5:batch",
+      "shelf_band": "ultra",
+      "band_note": "ultra-only (above the high fork in/out, DEC-089 uncapped)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "deepseek/deepseek-v4-pro": {
+      "vendor_class": "deepseek",
+      "lineage": "deepseek",
+      "price_confidence": null,
+      "context": 1048576,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "deepseek/deepseek-v4-pro",
+      "batch_slug": null,
+      "shelf_band": "high",
+      "band_note": "in high fork (in<=2.5 / out<=12, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "openai/gpt-6-luna": {
+      "vendor_class": "openai",
+      "lineage": "openai",
+      "price_confidence": null,
+      "context": 1050000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "openai/gpt-6-luna",
+      "batch_slug": "openai/gpt-6-luna:batch",
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "openai/gpt-6-sol": {
+      "vendor_class": "openai",
+      "lineage": "openai",
+      "price_confidence": null,
+      "context": 1050000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "openai/gpt-6-sol",
+      "batch_slug": "openai/gpt-6-sol:batch",
+      "shelf_band": "high",
+      "band_note": "in high fork (in<=2.5 / out<=12, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "qwen/qwen3-coder-flash": {
+      "vendor_class": "qwen",
+      "lineage": "qwen",
+      "price_confidence": null,
+      "context": 1000000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "qwen/qwen3-coder-flash",
+      "batch_slug": null,
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "qwen/qwen3.8-flash": {
+      "vendor_class": "qwen",
+      "lineage": "qwen",
+      "price_confidence": null,
+      "context": 1000000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "qwen/qwen3.8-flash",
+      "batch_slug": null,
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "qwen/qwen3.8-max-0902": {
+      "vendor_class": "qwen",
+      "lineage": "qwen",
+      "price_confidence": null,
+      "context": 1000000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "qwen/qwen3.8-max-0902",
+      "batch_slug": null,
+      "shelf_band": "high",
+      "band_note": "in high fork (in<=2.5 / out<=12, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "tencent/hy3": {
+      "vendor_class": "tencent",
+      "lineage": "tencent",
+      "price_confidence": null,
+      "context": 262144,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "tencent/hy3",
+      "batch_slug": null,
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "tencent/hy4-preview": {
+      "vendor_class": "tencent",
+      "lineage": "tencent",
+      "price_confidence": null,
+      "context": 1048576,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "tencent/hy4-preview",
+      "batch_slug": null,
+      "shelf_band": "high",
+      "band_note": "in high fork (in<=2.5 / out<=12, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "x-ai/grok-4.7": {
+      "vendor_class": "xai",
+      "lineage": "grok",
+      "price_confidence": null,
+      "context": 500000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "x-ai/grok-4.7",
+      "batch_slug": null,
+      "shelf_band": "high",
+      "band_note": "in high fork (in<=2.5 / out<=12, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "xiaomi/mimo-v2.6-flash": {
+      "vendor_class": "xiaomi",
+      "lineage": "xiaomi",
+      "price_confidence": null,
+      "context": 1048576,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "xiaomi/mimo-v2.6-flash",
+      "batch_slug": null,
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "mistralai/codestral-2508": {
+      "vendor_class": "mistralai",
+      "lineage": "mistralai",
+      "price_confidence": null,
+      "context": 256000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "mistralai/codestral-2508",
+      "batch_slug": "mistralai/codestral-2508:batch",
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "qwen/qwen3.8-omni-flash": {
+      "vendor_class": "qwen",
+      "lineage": "qwen",
+      "price_confidence": null,
+      "context": 1000000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "base_slug": "qwen/qwen3.8-omni-flash",
+      "batch_slug": null,
+      "shelf_band": "medium",
+      "band_note": "in medium fork (in<=0.6 / out<=1.6, DEC-089)",
+      "note": "DEC-089 shelf-map v1 addition; live price via price-sync 2026-09-23"
+    },
+    "~anthropic/claude-sonnet-latest": {
+      "vendor_class": "~anthropic",
+      "lineage": "~anthropic",
+      "price_confidence": null,
+      "context": 1000000,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null
+    },
+    "z-ai/glm-5.3-flashx": {
+      "vendor_class": "z-ai",
+      "lineage": "z-ai",
+      "price_confidence": null,
+      "context": 1048576,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null
+    },
+    "~z-ai/glm-flash-latest": {
+      "vendor_class": "~z-ai",
+      "lineage": "~z-ai",
+      "price_confidence": null,
+      "context": 1310720,
+      "model_created": null,
+      "price_in": null,
+      "price_out": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null
+    },
+    "deepseek/deepseek-v4.1-flash-1017": {
+      "vendor_class": "deepseek",
+      "lineage": "deepseek",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "price_source": null,
+      "price_verified_at": null,
+      "band_cap_out": 0.36,
+      "context": 1048576,
+      "batch": true,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "model_created": null
+    },
+    "minimax/minimax-m3.1-flash": {
+      "vendor_class": "minimax",
+      "lineage": "minimax",
+      "price_in": null,
+      "price_out": null,
+      "batch_in": 0,
+      "batch_out": 1,
+      "price_confidence": null,
+      "context": 1048576,
+      "note": "coder cloud-fast band; P0 price-sync target",
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null
+    },
+    "openai/gpt-6.1-terra": {
+      "vendor_class": "openai",
+      "lineage": "openai",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "context": 1050000,
+      "batch": false,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null,
+      "note": "2026-10-27 refresh: fills empty role-overseer talk.high shelf"
+    },
+    "mistralai/mistral-large-4-0": {
+      "vendor_class": "mistralai",
+      "lineage": "mistral",
+      "price_in": null,
+      "price_out": null,
+      "price_confidence": null,
+      "context": 1048576,
+      "batch": false,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "price_verified_at": null,
+      "price_source": null,
+      "model_created": null,
+      "note": "2026-10-27 refresh: catalog-only, not seated; $1.36/$4.18 beats nothing seated"
+    }
+  },
+  "removed_slugs_note": "Documentation only — the operational removal list is the DEC-105 overlay's removed_slugs (gitignored config/model-ladder.prices.json), which the SPLIT merge strips. Currently: z-ai/glm-5.3-flashx (earlier operator removal; its catalog row stays) and anthropic/claude-sonnet-5.5 (operator ruling 2026-11-09, matrix shelf-filling v1 / sonnet-5.5 cost reconcile; catalog row removed; 442 ledger rows / $40.443808 billed with no runtime price row, docs/reports/2026-11-07-wide07-d-cost-reconcile.md). Sonnet-5.5 is RE-ADMITTABLE as a NORMAL candidate: if the ladder algorithm proposes it for a role shelf, re-add one slugs row — no reservation, no veto.",
+  "probes": {
+    "P1": "RESOLVED 2026-09-05: thinkingmachines/inkling [live]; pending MoS vetting (DEC-034) before binding",
+    "P2": "RESOLVED 2026-09-05: meta/muse-spark-1.3 [live]; pending MoS vetting",
+    "P3a": "candidates identified: meituan/longcat-2.0 [live-priced]; pending MoS vetting",
+    "P3b": "candidates identified: thinkingmachines/inkling-small [live-priced]; pending MoS vetting",
+    "P4": "RESOLVED 2026-09-05: inception/mercury-2.5-preview [live]; pending MoS vetting + lane-eligibility (seed/temperature, tool loop, worktree)"
+  },
+  "prices_note": "live-verified 2026-09-05 via openrouter public /api/v1/models by the overseer CORRECTIONS pass; remaining [registry] slugs are P0 price-sync targets (band rule D3 applies)"
+}
