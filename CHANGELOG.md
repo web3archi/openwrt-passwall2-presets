@@ -6,7 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-## [Unreleased]
+### 2026-11-23 — Pool manager live verification (60-probe chain measurement)
+
+- `docs`: first 60-probe latency measurement through the live chain (shunt → Balancing → the operator morning pool-8; fallback = "Авто - LTE", operator decision), probed from the router through the same SOCKS chain LAN clients ride: success 59/60 (98.3%, one 8s timeout, **zero total outages** — the 2026-11-22 collapse class did not reproduce under this pool), median 0.79s / p90 1.88s / max 3.36s, spikes ≥1.5s in ~17% of probes. Exit-IP distribution across five nodes (19/15/12/9/2) — leastLoad rotation working as designed; per-exit medians 0.71–0.97s: no single bad node, the spikes are per-request provider variance (the same provider-flap class as 2026-11-22), not node-localized. Versus the 2026-11-22 pool-10 baseline: no total outage (vs one ~5-minute one), median up 0.35→0.79s — the price of rotation across five exits. No data-forced reseat; `expected` 4→2 concentration stays a one-restart operator option if a lower median is worth fewer active exits.
+
 ### 2026-11-23 — Pool manager (passive census, ranked seating)
 
 - `feat(pool)`: observer census step — ONE `url_test_node`-class probe per minute on the existing cron grid (`--census` rides the last sleep-offset line via `--ensure-cron`; the grid and the 15s status freshness untouched), round-robin over the fitness-filtered census set (Xray vless/trojan, ss excluded, RU excluded, addon infra excluded), samples appended to `/overlay/passwall2-presets/pool-stats` (USB — survives reboot; 24h window pruned per write). `pool.enabled` gates it independently of `main.enabled`. Simplification from SPEC §2: verdict collapses to ok/fail (start-vs-dead proved ambiguous live 2026-11-22).
