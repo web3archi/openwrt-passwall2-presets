@@ -145,7 +145,9 @@ census_run() {
     # infrastructure sections. Carriers (_balancing/_shunt) never carry these protocols.
     local CSET=""
     local s t pr g rem
-    for s in $(uci show passwall2 2>/dev/null | grep "\.=nodes$" | cut -d. -f2 | sort -u); do
+    # NOTE: busybox grep on this router does not match a backslash-dot before "=",
+    # so the pattern is plain "=nodes$" and the sid strip is sed (verified live 2026-11-23).
+    for s in $(uci show passwall2 2>/dev/null | grep "=nodes$" | sed -e 's/^passwall2\.//' -e 's/=nodes$//' | sort -u); do
         case "$s" in pw2p_*) continue ;; esac
         t=$(uci_get passwall2.$s.type); [ "$t" = "Xray" ] || continue
         pr=$(uci_get passwall2.$s.protocol)
@@ -171,7 +173,8 @@ census_run() {
     RES=$(timeout 30 sh /usr/share/passwall2/test.sh url_test_node "$NEXT" 2>/dev/null)
     CODE=${RES%%:*}
     MS=${RES#*:}
-    case "$CODE" in 200|204) OK=1 ;; *) OK=0; MS=0 ;; esac
+    # curl time_pretransfer is SECONDS; the samples log stores integer ms
+    case "$CODE" in 200|204) OK=1; MS=$(awk -v t="$MS" 'BEGIN{printf "%d", t*1000}') ;; *) OK=0; MS=0 ;; esac
     NOW=$(now)
     printf '%s|%s|%s|%s\n' "$NEXT" "$NOW" "$OK" "$MS" >> "$CENSUS_STATS"
     CUT=$((NOW - CENSUS_WINDOW_SECS))
