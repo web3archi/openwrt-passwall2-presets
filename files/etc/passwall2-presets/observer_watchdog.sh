@@ -142,6 +142,12 @@ census_run() {
     [ "${CENSUS_TICK:-0}" = "1" ] || return 0
     local POOL_ENABLED=$(uci_get ${PKG}.pool.enabled)
     [ "${POOL_ENABLED:-1}" = "1" ] || return 0
+
+    # Cadence throttle (test A finding, 2026-11-24: the 1/min temp-xray spawn doubled
+    # the chain median 0.33 to 0.79 s — the census itself was the noise). ONE probe
+    # per 5 minutes: only when the minute is divisible by 5. The 24h stats window
+    # stays fed (~5 samples per node per day, well past the 2-attempt cutoff).
+    case "$(date +%M)" in *[05]) ;; *) return 0 ;; esac
     [ -x /usr/share/passwall2/test.sh ] || return 0
     mkdir -p /overlay/passwall2-presets 2>/dev/null
     [ -d /overlay/passwall2-presets ] || return 0

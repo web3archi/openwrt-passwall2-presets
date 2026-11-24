@@ -43,7 +43,9 @@ own leastLoad/fallback runtime, not us.
 
 - **Cadence: ONE census probe per minute** — the observer cron grid (sleep-offset lines,
   15s cadence) is NOT touched; the census step runs on exactly one of the four observer
-  ticks (the `sleep 45` line), i.e. once per minute. A full sweep of ~90 sections is
+  ticks (the `sleep 45` line), i.e. once per minute (AMENDED 2026-11-24: throttled to once per 5 minutes by the
+  minute-divisible-by-5 gate in census_run — test A showed the 1/min temp-xray spawn
+  doubled the chain median, 0.33 s quiet to 0.79 s with the census running). A full sweep of ~90 sections is
   ~90 min; per-probe memory is occupied ~5% of the time. The status/watchdog freshness
   keeps its native 15s cadence (operator resolution 1, 2026-11-23).
 - **One probe per census fire**: the PW2-native method — a temporary local socks instance

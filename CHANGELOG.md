@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-11-24 — Ghost checkboxes, probe run-switches, census throttle
+
+- `fix(luci)`: every Save & Apply and Reset on Settings now ends in a full page reload (handleSaveApply/handleReset overrides with mode passthrough). Root cause of the returning checkboxes: luci.js never reloads after save/apply, so a long-lived tab carries its pre-Apply DOM and its next Apply re-writes stale checkbox state back into uci (the kill-switch re-ticked exactly that way, live-verified). Plain Save stays stock — its chain is shared by Save & Apply, reloading inside it would abort the apply halfway.
+- `feat(luci)`: the four Probe checkboxes (A/B/C/D) in the Widget section double as the probe's own RUN switch: cfgvalue mirrors the probe gate (ip_via_proxy.enabled and friends), write sets BOTH the show flag and the gate. Unticked stops the probe entirely (no traffic, no CPU), not just hidden. Non-probe rows stay pure visibility switches.
+- `fix(observer)`: census throttled from one probe per minute to ONE PER 5 MINUTES (minute divisible by 5) — test A (2026-11-24) measured the 1/min temp-xray spawn doubling the chain median (0.33 s quiet to 0.79 s with the census running). SPEC-pool-manager.md §1 amended accordingly.
+- `ops(pool)`: balancer pool reseated to the ranked top of the fresh census stats after test A (single-node pool left the operator exposed to provider flaps; fallback stays the operator's Auto-LTE pick).
+
 ### 2026-11-24 — Two UI-state bugs: force_balancer clobbered the SOCKS preset; full-tree deploys reset live config
 
 - `fix(luci)`: force_balancer no longer clobbers the Custom SOCKS preset. Sections save in insertion order, so fBal.write (pool) ran after customEnable.write (custom_socks) pointed the shunt default_node at its own node — and rewrote it to the Balancing sid, silently unseating the preset on the very same Apply (smoking gun in UCI: pool.prev_default_node remembered 'pw2p_custom_socks_node'). Now fBal.write returns without touching default_node whenever the custom_socks_enabled checkbox formvalue in the same save is '1' — the preset owns the shunt exit and dials through the Balancing node as its first hop anyway.
