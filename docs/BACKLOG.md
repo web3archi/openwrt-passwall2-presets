@@ -1194,3 +1194,24 @@ work can assume "full lists" are actually a viable option on this hardware.
 - Overview/Widget row for the new `killswitch` status field (data already lands in observer_watchdog.status; UI row deferred until the feature is field-proven).
 - Verify PW2's `fallback_node` semantics once: when the whole balancing pool AND the fallback node are down, confirm PW2 fails connections rather than falling back to direct (expected; only `fallback_node='_direct'` leaks by design). Note the finding in SPEC-killswitch.md.
 - Residuals accepted by the operator (2026-10-04): up to ~15s arming delay after an UNSCHEDULED PW2 crash; boot sliver before init START=25 (WAN has no address there, practically unreachable); armed state drops RU-direct too (silence over leak). A resident watcher daemon was proposed and declined (moving parts > threat).
+## P16 — 2026-11-24 Per-service balancers (b-ai pattern from the mt-series "Автовыбор" config)
+
+**Source:** the provider mt-series Xray config (avto_mt.txt, "⚡ Автовыбор") routes
+per-service through separate balancers: b-yt (youtube/googlevideo/ytimg), b-ig
+(instagram/fbcdn), b-ai (openai/anthropic/gemini domains -> a US-AI node), b-ru
+(geoip:ru), b-rest (catch-all), each with its own leastLoad pool and its own fallback.
+Mined 2026-11-24; NOT adopted yet — no nodes to feed it with today (all measured US nodes
+dead; the only live AI-adjacent node is India ~1.2 s).
+
+**Idea:** a second Xray `_balancing` section (e.g. `Bal-AI`) whose pool holds AI-grade
+nodes, plus a shunt rule `domain:<ai-service> -> Bal-AI` in our rulenode. The addon's
+Settings page would then render one Pool manager section per discovered balancer.
+
+**Trigger to revisit:** live US/AI-suitable nodes appear in the census stats (the
+pool-manager cutoff would surface them automatically).
+
+**Not adopted from the same config:** their b-ru `fallbackTag: "direct"` pattern (a
+balancer fallback into the raw provider exit) — an IP leak by our killswitch policy;
+our fallback stays a live node. Their b-yt-on-RU-nodes routing — the RU exclusion rule
+already covers it.
+
