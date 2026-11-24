@@ -248,7 +248,11 @@ OBS_ENABLED=$(uci_get ${PKG}.main.enabled); OBS_ENABLED=${OBS_ENABLED:-0}
 
 census_run   # pool census: gated by pool.enabled, NOT by main.enabled (SPEC-pool-manager.md §1)
 
-[ "$OBS_ENABLED" != "1" ] && exit 0
+# Probes A/B/C/D run under their OWN per-probe gates (ip_via_proxy.enabled etc),
+# NOT under the addon master switch (operator decision 2026-11-24): unticking Observer
+# disables the ACTING parts (watchdog restarts, kill-switch automation) while the
+# probes keep feeding the widget live data. Each probe's widget-row checkbox (see
+# settings.js) now toggles that probe's own enabled option — one switch, both meanings.
 
 WATCHDOG_ENABLED=$(uci_get ${PKG}.main.watchdog_enabled); WATCHDOG_ENABLED=${WATCHDOG_ENABLED:-0}
 GRACE_PERIOD=$(uci_get ${PKG}.main.grace_period); GRACE_PERIOD=${GRACE_PERIOD:-30}
