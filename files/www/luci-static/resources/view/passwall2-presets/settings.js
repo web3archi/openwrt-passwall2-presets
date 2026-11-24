@@ -926,20 +926,20 @@ return view.extend({
 			_('Whether the Xray core process is actually running, checked live by the ' +
 			'watchdog on every pass (about once per arming window, 15 s by default). Running alone does not ' +
 			'prove traffic flows — the probes below answer that.'));
-		addProbeFlag('show_probe_a, _('Probe A — exit IP via proxy'),
+		addProbeFlag('show_probe_a', _('Probe A — exit IP via proxy'),
 			_('The public exit IP your traffic presents to the outside world while ' +
 			'going through the proxy. The row also shows how long this exit IP has ' +
 			'held steady and, when the IP matches one of the active balancer node\'s ' +
 			'own addresses, that node\'s flag and label from its PassWall2 remarks — ' +
 			'so you can see at a glance which node you are riding.'));
-		addProbeFlag('show_probe_c, _('Probe C — exit IP via direct path'),
+		addProbeFlag('show_probe_c', _('Probe C — exit IP via direct path'),
 			_('The exit IP seen without the proxy: your plain ISP address, fetched ' +
 			'around the chain. Compare with Probe A — if both show the same IP, your ' +
 			'traffic is leaving by the direct path and the proxy is not in the loop. ' +
 			'Stays disabled until you set up a direct/shunt rule that routes the ' +
 			'IP-checker host outside the proxy (see the README how-to) and enable ' +
 			'the ip_direct probe in /etc/config/passwall2_presets.'));
-		addProbeFlag('show_probe_b, _('Probe B — blocked resource via proxy'),
+		addProbeFlag('show_probe_b', _('Probe B — blocked resource via proxy'),
 			_('Checks that a resource you listed as blocked actually comes back ' +
 			'through the proxy, with its latency. Rows show not configured until you ' +
 			'add hosts to the blocked_via_proxy probe in ' +
@@ -947,7 +947,7 @@ return view.extend({
 			'differ per region). If Probe A looks fine but B fails, your current ' +
 			'node cannot reach that resource: wrong exit country or a dead pool ' +
 			'member.'));
-		addProbeFlag('show_probe_d, _('Probe D — unblocked resource via direct path'),
+		addProbeFlag('show_probe_d', _('Probe D — unblocked resource via direct path'),
 			_('Fetches a known-open resource without the proxy — the baseline that ' +
 			'plain internet still works. Rows show not configured until you add ' +
 			'hosts to the unblocked_direct probe in /etc/config/passwall2_presets. ' +
