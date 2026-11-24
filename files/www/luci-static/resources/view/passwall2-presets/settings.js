@@ -294,6 +294,22 @@ return view.extend({
 		});
 	},
 
+	// Ghost-checkbox fix (operator decision 2026-11-24): every Save & Apply and every
+	// Reset ends in a full page reload. luci.js never reloads after save/apply
+	// (verified in /www/luci-static/resources/luci.js — no location.reload anywhere in
+	// the save chain), so a long-lived tab keeps its pre-Apply DOM: its NEXT Apply
+	// re-writes stale checkbox state back into uci (the kill-switch re-ticked exactly
+	// that way, live-verified), and any redraw shows the page-load-time snapshot.
+	// Reload keeps the DOM equal to the committed uci state — a stale tab can never
+	// write old values again. Plain "Save" deliberately stays stock: its chain is
+	// shared by Save & Apply, and reloading inside it would abort the apply halfway.
+	handleSaveApply: function(ev, mode) {
+		return Promise.resolve(this.super('handleSaveApply', ev, mode)).then(function() { location.reload(); });
+	},
+	handleReset: function(ev) {
+		return Promise.resolve(this.super('handleReset', ev)).then(function() { location.reload(); });
+	},
+
 	render: function() {
 		var m = new form.Map('passwall2_presets', null,
 			_('Settings for PassWall2 Presets.'));
@@ -865,6 +881,35 @@ return view.extend({
 			return o;
 		}
 
+		// Probe visibility flags double as the probe's RUN switch (operator decision
+		// 2026-11-24): the checkbox mirrors the probe's own gate (ip_via_proxy.enabled
+		// and friends) and writes BOTH — "the row shows" == "the probe runs". Unticked:
+		// the probe stops entirely (no traffic, no CPU), not just hidden; the
+		// observer's next cron tick picks the change up. Probes only — every other row
+		// above stays a pure visibility switch.
+		var PROBE_GATES = {
+			show_probe_a: 'ip_via_proxy',
+			show_probe_b: 'blocked_via_proxy',
+			show_probe_c: 'ip_direct',
+			show_probe_d: 'unblocked_direct'
+		};
+		function addProbeFlag(name, title, description) {
+			var o = addFlag(name, title, description);
+			o.cfgvalue = function(section_id) {
+				return uci.get('passwall2_presets', PROBE_GATES[name], 'enabled') || '0';
+			};
+			o.write = function(section_id, value) {
+				uci.set('passwall2_presets', section_id, name, value);
+				if (!uci.get('passwall2_presets', PROBE_GATES[name]))
+					uci.add('passwall2_presets', 'probe', PROBE_GATES[name]);
+				uci.set('passwall2_presets', PROBE_GATES[name], 'enabled', value);
+			};
+			o.description = (o.description || '') + ' ' +
+				_('This checkbox also switches the probe itself: unticked, the probe stops ' +
+				'running entirely, not just hidden from the widget.');
+			return o;
+		}
+
 		// Order matches the Overview panel's own row order (see overview.js's
 		// "Row order per user request 2026-07-22" comment) so the checkbox list reads
 		// top-to-bottom exactly like the thing it's controlling.
@@ -881,20 +926,20 @@ return view.extend({
 			_('Whether the Xray core process is actually running, checked live by the ' +
 			'watchdog on every pass (about once per arming window, 15 s by default). Running alone does not ' +
 			'prove traffic flows — the probes below answer that.'));
-		addFlag('show_probe_a', _('Probe A — exit IP via proxy'),
+		addProbeFlag('show_probe_a, _('Probe A — exit IP via proxy'),
 			_('The public exit IP your traffic presents to the outside world while ' +
 			'going through the proxy. The row also shows how long this exit IP has ' +
 			'held steady and, when the IP matches one of the active balancer node\'s ' +
 			'own addresses, that node\'s flag and label from its PassWall2 remarks — ' +
 			'so you can see at a glance which node you are riding.'));
-		addFlag('show_probe_c', _('Probe C — exit IP via direct path'),
+		addProbeFlag('show_probe_c, _('Probe C — exit IP via direct path'),
 			_('The exit IP seen without the proxy: your plain ISP address, fetched ' +
 			'around the chain. Compare with Probe A — if both show the same IP, your ' +
 			'traffic is leaving by the direct path and the proxy is not in the loop. ' +
 			'Stays disabled until you set up a direct/shunt rule that routes the ' +
 			'IP-checker host outside the proxy (see the README how-to) and enable ' +
 			'the ip_direct probe in /etc/config/passwall2_presets.'));
-		addFlag('show_probe_b', _('Probe B — blocked resource via proxy'),
+		addProbeFlag('show_probe_b, _('Probe B — blocked resource via proxy'),
 			_('Checks that a resource you listed as blocked actually comes back ' +
 			'through the proxy, with its latency. Rows show not configured until you ' +
 			'add hosts to the blocked_via_proxy probe in ' +
@@ -902,7 +947,7 @@ return view.extend({
 			'differ per region). If Probe A looks fine but B fails, your current ' +
 			'node cannot reach that resource: wrong exit country or a dead pool ' +
 			'member.'));
-		addFlag('show_probe_d', _('Probe D — unblocked resource via direct path'),
+		addProbeFlag('show_probe_d, _('Probe D — unblocked resource via direct path'),
 			_('Fetches a known-open resource without the proxy — the baseline that ' +
 			'plain internet still works. Rows show not configured until you add ' +
 			'hosts to the unblocked_direct probe in /etc/config/passwall2_presets. ' +
