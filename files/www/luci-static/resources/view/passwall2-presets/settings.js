@@ -547,6 +547,16 @@ return view.extend({
 		fBal.write = function(section_id, value) {
 			if (!shunt || !balName)
 				return;
+			// Mutual exclusion with the Custom SOCKS preset (live-verified 2026-11-24):
+			// sections save in insertion order, so this runs AFTER custom_socks has
+			// pointed default_node at its own node — and would silently clobber it
+			// (observed: pool.prev_default_node remembered 'pw2p_custom_socks_node',
+			// the preset unticked itself on the very same Apply). When the custom
+			// preset is enabled in this same save, IT owns the shunt exit (and dials
+			// through the Balancing node as its first hop anyway) — do not touch.
+			var ce = this.map.lookupOption('custom_socks_enabled', 'custom_socks');
+			if (ce && ce[0] && ce[0].formvalue('custom_socks') === '1')
+				return;
 			var cur = uci.get('passwall2', shunt.section['.name'], 'default_node');
 			if (value === '1') {
 				if (cur !== balName)

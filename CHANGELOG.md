@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-11-24 — Two UI-state bugs: force_balancer clobbered the SOCKS preset; full-tree deploys reset live config
+
+- `fix(luci)`: force_balancer no longer clobbers the Custom SOCKS preset. Sections save in insertion order, so fBal.write (pool) ran after customEnable.write (custom_socks) pointed the shunt default_node at its own node — and rewrote it to the Balancing sid, silently unseating the preset on the very same Apply (smoking gun in UCI: pool.prev_default_node remembered 'pw2p_custom_socks_node'). Now fBal.write returns without touching default_node whenever the custom_socks_enabled checkbox formvalue in the same save is '1' — the preset owns the shunt exit and dials through the Balancing node as its first hop anyway.
+- `fix(deploy)`: router deploys of this tree must NEVER include files/etc/config — a full-tree tar overwrites the live /etc/config/passwall2_presets with the template and resets operator runtime state (killswitch.enabled was re-ticked this way, live-verified). Deploy code files only; config-template changes land only via explicit operator action.
+
 ### 2026-11-23 - Census hang: PW2 get_new_port memo exhaustion (upstream bug workaround)
 
 - `fix(pool)`: census_run now cleans the stale `get_port_*` memo lines from `/tmp/etc/passwall2/var` before each probe. Root cause of the evening census hang (empty probe codes 19:22-21:44): PW2 own `get_new_port()` memoizes EVERY handed-out port and never releases it - netstat is the real occupancy check, so the memo only ever blocks reuse of this census own short-lived temp socks instances. At one probe per minute the allocation walk crawled +1 port per minute (251 dead entries observed) until it exceeded the probe timeout and `test.sh` hung; manual retest after cleaning returned 204:0.559 instantly. Other cache keys untouched.
