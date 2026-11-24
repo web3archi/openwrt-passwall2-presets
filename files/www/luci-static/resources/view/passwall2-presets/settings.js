@@ -297,6 +297,24 @@ return view.extend({
 	render: function() {
 		var m = new form.Map('passwall2_presets', null,
 			_('Settings for PassWall2 Presets.'));
+		// --- Addon master switch (operator request 2026-11-24: the on/off at the very top) ---
+		// Mirrors + writes passwall2_presets.main.enabled — the same option the observer
+		// gates its whole run on (probes, census, killswitch automation, watchdog): 0 =
+		// the addon observes nothing and never touches PassWall2. Placed above all preset
+		// sections on purpose — one glance answers "is my addon doing anything".
+		if (!uci.get('passwall2_presets', 'main'))
+			uci.add('passwall2_presets', 'observer', 'main');
+		var sMain = m.section(form.NamedSection, 'main', 'observer', null);
+		sMain.addremove = false;
+		var obsEnable = sMain.option(form.Flag, 'enabled', _('Observer enabled'));
+		obsEnable.rmempty = false;
+		obsEnable.default = '1';
+		obsEnable.description = _('The master switch for the whole addon: unticked, the ' +
+			'observer runs nothing (no probes, no node census, no kill-switch automation, ' +
+			'no watchdog restarts) and PassWall2 behaves exactly as configured by hand. ' +
+			'Ticked, the background observer polls the chain and maintains the features ' +
+			'below. The Observer status on the Overview page reflects this switch.');
+
 		// --- Custom SOCKS5 (fixed final exit) ----------------------------------------
 		// Native PW2 chaining: our SOCKS node carries chain_proxy='1' plus
 		// preproxy_node=<balancing section>, so PW2 dials the SOCKS5 connection
