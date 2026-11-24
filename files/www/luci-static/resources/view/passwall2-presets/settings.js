@@ -549,6 +549,21 @@ return view.extend({
 		// Writes ONLY the shunt's default_node — never @global node/tcp/udp (the 2026-11-22
 		// drift class). Restore-on-untick only-if-current-is-ours (never clobbers).
 		var shunt = findShuntSection();
+		// Census switch (operator request 2026-11-24: an explicit probe on/off). Mirrors
+		// and writes pool.enabled — the same gate observer_watchdog.sh's census step runs
+		// under (SPEC-pool-manager.md §1): off = no periodic node probes at all (the
+		// ranked list keeps rendering its last collected stats), on = the round-robin
+		// sweep resumes at the next cron tick. Deliberately INDEPENDENT of the addon
+		// master switch and the observer: killing monitoring noise for A/B latency
+		// measurements (as done live 2026-11-24) does not require dropping the probes.
+		var cenEnable = sPool.option(form.Flag, 'enabled', _('Census enabled'));
+		cenEnable.rmempty = false;
+		cenEnable.default = '1';
+		cenEnable.description = _('Unticked, the periodic one-node-per-minute probe sweep ' +
+			'is fully off (quiet router, honest A/B latency tests). The ranked list on this ' +
+			'page keeps showing the last collected statistics until the census is ticked ' +
+			'back on. Ticked, the sweep resumes at the next observer tick.');
+
 		var fBal = sPool.option(form.Flag, 'force_balancer',
 			_('Force the shunt default through the Balancing node'));
 		fBal.rmempty = false;
