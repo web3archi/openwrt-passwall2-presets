@@ -25,7 +25,12 @@ STATE_FILE=${STATE_DIR}/observer_watchdog.state
 STATUS_FILE=${STATE_DIR}/observer_watchdog.status
 LOG_FILE=${STATE_DIR}/observer_watchdog.log
 LOCK_DIR=${STATE_DIR}/observer_watchdog.lock
-LOG_MAX_BYTES=524288     # 512KB cap
+LOG_MAX_BYTES=65536      # 64KB cap. MUST stay under the rpcd file.read size
+                          # limit (~128KB, verified live 2026-11-24: a 120KB log
+                          # reads fine, a 399KB log returns NotSupported and LuCI
+                          # fs.read falls back to empty -> "No events recorded yet"
+                          # on Overview). renderEvents needs only LOG_TAIL_LINES
+                          # (~2KB), so 64KB is a x30 margin.
 LOCK_STALE_SECS=90       # a lock older than this is presumed abandoned (crash/kill),
                           # never trusted forever — see docs/BACKLOG.md P7 on why an
                           # unconditional "if lock exists, skip forever" design bit us
