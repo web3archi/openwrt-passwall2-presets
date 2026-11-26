@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-11-26 — Census delegates seated-pool testing to PassWall2
+
+- `fix(pool)`: census_run skips every balancing_node member (live UCI read each fire) — PW2 own burstObservatory already probes each pool member every probeInterval inside the live xray (subjectSelector `blc-`), so a census probe on them was pure duplicate load. The census ranks CANDIDATES only; literal harvesting of PW2 latency numbers is impossible (no Xray API inbound, BACKLOG P7). Settings rows of seated nodes now say so instead of showing stale stats. PW2 own probeInterval stays at 2 m: it is the balancer failover reaction clock, and changing it would need a restart (parked; the router must not be interrupted - a foreign test session is running).
+- `docs`: SPEC-pool-manager.md §3 amended (skip-only delegation).
+
 ### 2026-11-24 - Census tunables in Settings; single probe again
 
 - `feat(pool)`: the Pool manager section gains two operator fields: **Probe every N minutes** (`pool.probe_interval`, default 5, no ceiling - the census cadence, replacing the hardcoded 5-minute gate) and **Suggested pool size** (`pool.pool_size`, default 13, no ceiling - the ranked list cap, previously a script constant). Both are read live by the observer at the next cron tick; no PassWall2 restart involved.

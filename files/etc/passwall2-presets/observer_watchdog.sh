@@ -159,6 +159,15 @@ census_run() {
     # allowlist per the 2026-11-22 operator call), not RU-flagged, not this addon's own
     # infrastructure sections. Carriers (_balancing/_shunt) never carry these protocols.
     local CSET=""
+    # Seated pool members are live-tested by PW2 itself (operator decision 2026-11-26):
+    # its burstObservatory probes every balancing_node member every probeInterval inside
+    # the live xray (subjectSelector blc-), so a census probe on them is duplicate load.
+    # The census ranks CANDIDATES only. Harvesting PW2 own latency numbers is impossible
+    # (no Xray API inbound, BACKLOG P7) - delegation is skip-only, not data-reuse.
+    local _bal=$(uci show passwall2 | grep "\.protocol='_balancing'$" | grep -v '^passwall2\.@' | head -1 | cut -d. -f2)
+    local _pw2_seated=""
+    [ -n "$_bal" ] && _pw2_seated=" $(uci_get_list passwall2.${_bal}.balancing_node) "
+
     local s t pr g rem
     # NOTE: busybox grep on this router does not match a backslash-dot before "=",
     # so the pattern is plain "=nodes$" and the sid strip is sed (verified live 2026-11-23).
@@ -167,6 +176,7 @@ census_run() {
         t=$(uci_get passwall2.$s.type); [ "$t" = "Xray" ] || continue
         pr=$(uci_get passwall2.$s.protocol)
         case "$pr" in vless|trojan) ;; *) continue ;; esac
+        case "$_pw2_seated" in *" $s "*) continue ;; esac
         g=$(uci_get passwall2.$s.group)
         rem=$(uci_get passwall2.$s.remarks)
         [ "$g" = "RU" ] && continue
