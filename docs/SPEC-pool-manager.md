@@ -89,11 +89,13 @@ own leastLoad/fallback runtime, not us.
   value `RU`, or remarks carrying the RU flag — the existing convention in this config).
   Exit-IP geo-check is a later optional refinement (Probe A already exposes the exit IP
   of the active path).
-- **Seated nodes are NOT census-probed** (operator decision 2026-11-26): every
-  balancing_node member is live-tested by PW2 own burstObservatory (subjectSelector
-  `blc-`, every `probeInterval` inside the running xray), so a census probe on them is
-  duplicate load; the census ranks CANDIDATES only. Harvesting PW2 own latency
-  numbers is impossible (no Xray API inbound, BACKLOG P7) - delegation is skip-only.
+- **The census probes the WHOLE census set, seated members included** (reverted
+  2026-11-26, operator catch): PW2 internal probe numbers cannot be harvested (no
+  Xray API inbound, BACKLOG P7), so the census is the ONLY rank-data source;
+  skipping seated members let their 24h stats age out and systematically dropped
+  the incumbents (the current best) from every next suggestion slate. The duplicate
+  load on 13 seated nodes (~one temp instance per node per full sweep) is the
+  accepted price of fresh rank data; the probe_interval knob carries the load tuning.
 - The census set may be probed even when not seated anywhere (measurement is global;
   seating is a separate manual act).
 

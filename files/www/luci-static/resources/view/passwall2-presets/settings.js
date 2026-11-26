@@ -656,9 +656,7 @@ return view.extend({
 				_('Attempts (24h): ' + r.st.attempts + ' · success: ' + r.st.success + '%' +
 					' · p50/p90: ' + fmtMs(r.st.p50) + ' / ' + fmtMs(r.st.p90) +
 					' · since ok: ' + fmtAgo(r.st.since_ok)) :
-				_('Seated in the PassWall2 pool: live-tested by PassWall2 itself (its own ' +
-				'observatory probes every pool member each probeInterval) - the census ranks ' +
-				'candidates only, so this row carries no census statistics.');
+				_('Seated in PassWall2 but not qualifying for the suggestion list (no/old data).');
 			seatOptions.push({ opt: o, sid: r.sid });
 		});
 

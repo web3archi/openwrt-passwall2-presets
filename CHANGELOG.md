@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-11-26 — Revert: census probes seated members again (operator catch)
+
+- `fix(pool)`: the same-day skip of balancing_node members from the census is REVERTED. The skip delegated seated-pool testing to PW2 own observatory — but PW2 latency numbers are not harvestable (no Xray API inbound, BACKLOG P7), so seated members accumulated no census stats, their 24h window aged out, and every next ranked slate would systematically exclude the incumbents — the current best nodes — dropping them on Apply. The census is the only rank-data source; it probes the whole census set again. Real cost accepted: ~one short-lived temp instance per seated node per full sweep (~13 per ~90-node sweep at the default probe_interval=5); duplication with PW2 internal probes is bounded and load-tunable via the existing knob. Settings row descriptions and SPEC §3 updated to the honest wording.
+
 ### 2026-11-26 — Census delegates seated-pool testing to PassWall2
 
 - `fix(pool)`: census_run skips every balancing_node member (live UCI read each fire) — PW2 own burstObservatory already probes each pool member every probeInterval inside the live xray (subjectSelector `blc-`), so a census probe on them was pure duplicate load. The census ranks CANDIDATES only; literal harvesting of PW2 latency numbers is impossible (no Xray API inbound, BACKLOG P7). Settings rows of seated nodes now say so instead of showing stale stats. PW2 own probeInterval stays at 2 m: it is the balancer failover reaction clock, and changing it would need a restart (parked; the router must not be interrupted - a foreign test session is running).
