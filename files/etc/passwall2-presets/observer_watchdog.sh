@@ -147,7 +147,11 @@ census_run() {
     # the chain median 0.33 to 0.79 s — the census itself was the noise). ONE probe
     # per 5 minutes: only when the minute is divisible by 5. The 24h stats window
     # stays fed (~5 samples per node per day, well past the 2-attempt cutoff).
-    case "$(date +%M)" in *[05]) ;; *) return 0 ;; esac
+    CENSUS_EVERY=$(uci_get ${PKG}.pool.probe_interval)
+    case "$CENSUS_EVERY" in ''|*[!0-9]*) CENSUS_EVERY=5 ;; esac
+    [ "$CENSUS_EVERY" -lt 1 ] && CENSUS_EVERY=1
+    _M=$(date +%M)
+    [ $(( _M % CENSUS_EVERY )) -eq 0 ] || return 0
     [ -x /usr/share/passwall2/test.sh ] || return 0
     mkdir -p /overlay/passwall2-presets 2>/dev/null
     [ -d /overlay/passwall2-presets ] || return 0
@@ -193,33 +197,15 @@ census_run() {
             mv -f /tmp/etc/passwall2/var.pw2p /tmp/etc/passwall2/var
     fi
 
-    # Double-sample (provider idea mined 2026-11-24 from the mt-series "Автовыбор"
-    # config: their burstObservatory ran sampling=2). One lone probe lets a single
-    # outlier (spikes to 0.8-1.1 s were seen live in a 500-600 ms band) pollute the
-    # p50 window; two probes with the MINIMUM taken filters exactly that outlier
-    # class at the cost of one extra short-lived temp instance per census fire.
-    RES=""
-    CODE=""
-    MS=""
-    _s2=1
-    while [ "$_s2" -le 2 ]; do
-        _r=$(timeout 30 sh /usr/share/passwall2/test.sh url_test_node "$NEXT" 2>/dev/null)
-        _c=${_r%%:*}
-        _m=${_r#*:}
-        if [ "$_s2" -eq 1 ]; then
-            CODE=$_c
-            case "$_c" in 200|204) MS=$(awk -v t="$_m" 'BEGIN{printf "%d", t*1000}') ;; *) MS=0 ;; esac
-            [ "$_c" = "204" ] || [ "$_c" = "200" ] && break   # first probe ok -> done fast-path
-        else
-            case "$_c" in 200|204)
-                _ms2=$(awk -v t="$_m" 'BEGIN{printf "%d", t*1000}')
-                [ "$_ms2" -lt "$MS" ] && MS=$_ms2
-                ;;
-            esac
-        fi
-        _s2=$((_s2+1))
-    done
-    case "$CODE" in 200|204) OK=1 ;; *) OK=0; MS=0 ;; esac
+    # Single probe per fire (reverted 2026-11-24 from sampling=2: the operator
+    # measured MORE chain disruption from the extra temp instance on this MT7621;
+    # the double-sample block is in git history and BACKLOG P17 for a revisit
+    # on stronger hardware).
+    RES=$(timeout 30 sh /usr/share/passwall2/test.sh url_test_node "$NEXT" 2>/dev/null)
+    CODE=${RES%%:*}
+    MS=${RES#*:}
+    # curl time_pretransfer is SECONDS; the samples log stores integer ms
+    case "$CODE" in 200|204) OK=1; MS=$(awk -v t="$MS" 'BEGIN{printf "%d", t*1000}') ;; *) OK=0; MS=0 ;; esac
     NOW=$(now)
     printf '%s|%s|%s|%s\n' "$NEXT" "$NOW" "$OK" "$MS" >> "$CENSUS_STATS"
     CUT=$((NOW - CENSUS_WINDOW_SECS))

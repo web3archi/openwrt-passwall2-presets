@@ -508,6 +508,7 @@ return view.extend({
 		var balName = (bal && bal.kind === 'xray_balancing') ? bal.section['.name'] : null;
 		var currentPool = balName ? (uci.get('passwall2', balName, 'balancing_node') || []) : [];
 		var currentFallback = balName ? uci.get('passwall2', balName, 'fallback_node') : null;
+		POOL_CAP = parseInt(uci.get('passwall2_presets', 'pool', 'pool_size'), 10) || 13;
 		var poolStats = parsePoolStats(POOL_STATS_RAW, Math.floor(Date.now() / 1000));
 		var ranked = rankPool(poolStats);
 		// Proposal slate (operator mandate 2026-11-23): the checkboxes PRE-TICK the
@@ -579,6 +580,19 @@ return view.extend({
 			'is fully off (quiet router, honest A/B latency tests). The ranked list on this ' +
 			'page keeps showing the last collected statistics until the census is ticked ' +
 			'back on. Ticked, the sweep resumes at the next observer tick.');
+		var probeEvery = sPool.option(form.Value, 'probe_interval',
+			_('Probe every N minutes'));
+		probeEvery.rmempty = false;
+		probeEvery.placeholder = '5';
+		probeEvery.description = _('One node probe every N minutes (default 5). Lower = faster ' +
+			'statistics fill but more router load; raise it if the chain feels noisy. No ceiling.');
+		var sizeOpt = sPool.option(form.Value, 'pool_size',
+			_('Suggested pool size'));
+		sizeOpt.rmempty = false;
+		sizeOpt.placeholder = '13';
+		sizeOpt.description = _('How many ranked nodes the suggestion list offers ' +
+			'(default 13). A maximum, never a quota - fewer qualifying nodes render ' +
+			'fewer rows. Raise it when stronger hardware allows a bigger live pool.');
 
 		var fBal = sPool.option(form.Flag, 'force_balancer',
 			_('Force the shunt default through the Balancing node'));

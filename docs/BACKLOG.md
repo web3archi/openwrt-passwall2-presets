@@ -1215,3 +1215,34 @@ balancer fallback into the raw provider exit) — an IP leak by our killswitch p
 our fallback stays a live node. Their b-yt-on-RU-nodes routing — the RU exclusion rule
 already covers it.
 
+## P16 - 2026-11-24 Per-service balancers (b-ai pattern from the mt-series config)
+
+**Source:** the provider mt-series Xray config (avto_mt.txt, auto-select) routes
+per-service through separate balancers: b-yt (youtube/googlevideo), b-ig
+(instagram/fbcdn), b-ai (openai/anthropic/gemini domains, a US-AI node), b-ru
+(geoip:ru), b-rest (catch-all), each leastLoad with its own fallback. NOT adopted:
+no feed stock today (all measured US nodes dead; the only live AI-adjacent node
+is India ~1.2 s).
+
+**Idea:** a second Xray _balancing section (Bal-AI) with AI-grade nodes plus a shunt
+rule for AI-service domains pointing at it; the Settings page renders one Pool
+manager section per discovered balancer.
+
+**Trigger:** live US/AI-suitable nodes appear in the census stats.
+
+**Rejected from the same config:** their b-ru fallback into a raw provider exit
+(an IP leak by our kill-switch policy; ours stays a live node).
+
+## P17 - 2026-11-24 Census double-sample (sampling=2) on strong hardware
+
+**Tried live 2026-11-24** (mined from the mt-series burstObservatory sampling=2):
+two probes per census fire, minimum taken, filters single-outlier pollution of the
+p50 window. **Reverted the same day**: the operator measured MORE chain disruption
+from the extra short-lived temp instance per fire on this MT7621 (880 MHz, 250 MB).
+**Revisit trigger:** stronger hardware, or a stretched probe_interval where two
+consecutive fires cost less than one flap. The double-sample block is in git
+history for direct reuse.
+
+**Also noted:** PW2 own observatory (probeInterval 2m inside the live xray) is NOT
+duplicate noise - it is the balancer own routing data (leastLoad node choice); the
+census ranks the suggestion list only. Both stay.

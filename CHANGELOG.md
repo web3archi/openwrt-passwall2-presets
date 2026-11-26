@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### 2026-11-24 - Census tunables in Settings; single probe again
+
+- `feat(pool)`: the Pool manager section gains two operator fields: **Probe every N minutes** (`pool.probe_interval`, default 5, no ceiling - the census cadence, replacing the hardcoded 5-minute gate) and **Suggested pool size** (`pool.pool_size`, default 13, no ceiling - the ranked list cap, previously a script constant). Both are read live by the observer at the next cron tick; no PassWall2 restart involved.
+- `fix(pool)`: the census is back to a SINGLE probe per fire (sampling=2, tried the same day, measured MORE chain disruption on this MT7621; BACKLOG P17 keeps the revisit trigger for stronger hardware).
+- `docs`: BACKLOG P16 (per-service balancers, the b-ai pattern - not adopted, no feed stock) and P17.
+
 ### 2026-11-24 — Ghost checkboxes, probe run-switches, census throttle
 
 - `fix(luci)`: every Save & Apply and Reset on Settings now ends in a full page reload (handleSaveApply/handleReset overrides with mode passthrough). Root cause of the returning checkboxes: luci.js never reloads after save/apply, so a long-lived tab carries its pre-Apply DOM and its next Apply re-writes stale checkbox state back into uci (the kill-switch re-ticked exactly that way, live-verified). Plain Save stays stock — its chain is shared by Save & Apply, reloading inside it would abort the apply halfway.
